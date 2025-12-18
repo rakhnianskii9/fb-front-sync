@@ -118,12 +118,36 @@ export function useKommo() {
       setConfig(data)
       
       if (data.connected && data.subdomain) {
+        console.log('[useKommo] Config loaded, Kommo connected to', data.subdomain)
         setConnection({
           accountId: data.accountId || '',
           accountDomain: data.subdomain,
           status: 'connected',
           connectedAt: new Date()
         })
+        
+        // Сразу загружаем metadata если подключены
+        try {
+          const metaResponse = await fetch(`/api/v1/kommo/metadata?workspaceId=${workspaceId}`, {
+            credentials: 'include',
+            headers: { 'x-request-from': 'internal' }
+          })
+          
+          if (metaResponse.ok) {
+            const metaData: KommoMetadataResponse = await metaResponse.json()
+            console.log('[useKommo] Metadata loaded:', { 
+              pipelines: metaData.pipelines?.length || 0, 
+              users: metaData.users?.length || 0 
+            })
+            setPipelines(transformPipelines(metaData.pipelines || []))
+            setUsers(transformUsers(metaData.users || []))
+            setCustomFields(metaData.customFields || [])
+          } else {
+            console.error('[useKommo] Metadata request failed:', metaResponse.status)
+          }
+        } catch (metaErr: any) {
+          console.error('[useKommo] Failed to load metadata:', metaErr)
+        }
       } else {
         setConnection(null)
       }
@@ -137,14 +161,25 @@ export function useKommo() {
    * Загрузка метаданных (pipelines, users, customFields)
    */
   const loadMetadata = useCallback(async () => {
-    if (!workspaceId || !connection) return
+    if (!workspaceId) return
     
     try {
       const response = await fetch(`/api/v1/kommo/metadata?workspaceId=${workspaceId}`, {
         credentials: 'include',
         headers: { 'x-request-from': 'internal' }
       })
+      
+      if (!response.ok) {
+        console.error('[useKommo] Metadata request failed:', response.status)
+        return
+      }
+      
       const data: KommoMetadataResponse = await response.json()
+      
+      console.log('[useKommo] Metadata loaded:', { 
+        pipelines: data.pipelines?.length || 0, 
+        users: data.users?.length || 0 
+      })
       
       setPipelines(transformPipelines(data.pipelines || []))
       setUsers(transformUsers(data.users || []))
@@ -153,7 +188,7 @@ export function useKommo() {
       console.error('[useKommo] Failed to load metadata:', err)
       // Не фатальная ошибка — не блокируем UI
     }
-  }, [workspaceId, connection])
+  }, [workspaceId])
 
   /**
    * Сохранение конфигурации
@@ -273,9 +308,10 @@ export function useKommo() {
   // Загрузка метаданных после подключения
   useEffect(() => {
     if (connection?.status === 'connected') {
+      console.log('[useKommo] Connection established, loading metadata...')
       loadMetadata()
     }
-  }, [connection?.status, loadMetadata])
+  }, [connection?.status]) // Убрал loadMetadata из зависимостей чтобы избежать лишних вызовов
 
   return {
     // Состояние

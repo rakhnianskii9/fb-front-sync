@@ -53,7 +53,7 @@ export function LoadingOverlay({ isLoading, message = 'Loading data...', classNa
           {/* Контейнер для вылетающего текста */}
           {/* key={metricIndex} перезапускает анимацию при смене текста */}
           <div key={metricIndex} className="metric-emitter">
-            <div className={cn('metric-3d', currentMetric === 'MRR' && 'metric-3d--mrr')} data-text={currentMetric}>
+            <div className="metric-3d metric-3d--white" data-text={currentMetric}>
               {currentMetric}
             </div>
             
@@ -442,8 +442,8 @@ export function LoadingOverlay({ isLoading, message = 'Loading data...', classNa
           opacity: 0;
         }
 
-        /* Белая заливка для MRR (по запросу) */
-        .metric-3d--mrr {
+        /* Белая заливка для всех метрик */
+        .metric-3d--white {
           background: none;
           -webkit-background-clip: initial;
           background-clip: initial;

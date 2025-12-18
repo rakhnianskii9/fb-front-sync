@@ -1250,35 +1250,43 @@ export default function NotesPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background">
-      {/* Header */}
-      <div className="flex-none bg-background">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between mb-6">
+    <div className="flex flex-col h-full bg-background">
+      {/* Header - как в CrmPage */}
+      <div className="border-b border-border">
+        <div className="px-6 py-4 flex items-center justify-between">
+          <div className="flex-1 min-w-0">
             <h1 className="text-display-lg text-foreground">User Notes & AI Insights</h1>
-            {visibleSelectedNotes.length > 0 ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-muted-foreground">
-                  {visibleSelectedNotes.length} selected
-                </span>
-                <Button 
-                  onClick={handleCloseSelected} 
-                  variant="destructive"
-                  data-testid="button-close-selected" 
-                  size="sm"
-                >
-                  <XCircle className="w-4 h-4 mr-2" />
-                  Close All
-                </Button>
-              </div>
-            ) : (
-              <Button onClick={handleCreateNote} data-testid="button-add-note" size="sm">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Note
-              </Button>
-            )}
+            <p className="text-body-sm text-muted-foreground">
+              Manage your notes, track tasks, and review AI-generated insights.
+            </p>
           </div>
-          
+          {visibleSelectedNotes.length > 0 ? (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {visibleSelectedNotes.length} selected
+              </span>
+              <Button 
+                onClick={handleCloseSelected} 
+                variant="destructive"
+                data-testid="button-close-selected" 
+                size="sm"
+              >
+                <XCircle className="w-4 h-4 mr-2" />
+                Close All
+              </Button>
+            </div>
+          ) : (
+            <Button onClick={handleCreateNote} data-testid="button-add-note" size="sm">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Note
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Main content - scrollable */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="px-6 py-6">
           {/* Status Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <Card 
@@ -1353,65 +1361,60 @@ export default function NotesPage() {
               </div>
             </Card>
           </div>
-        </div>
-      </div>
 
-      {/* Tabs Header - directly above table */}
-      <div className="flex-none bg-background">
-        <div className="px-6 flex gap-4">
-          <button
-            onClick={() => setActiveTab("user")}
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-              activeTab === "user"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-            data-testid="tab-user-notes"
-          >
-            <span className="font-medium">User Notes</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("ai")}
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-              activeTab === "ai"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-            data-testid="tab-ai-recommendations"
-          >
-            <span className="font-medium">AI</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Table Content */}
-      <div className="flex-1 overflow-auto">
-        {filteredNotes.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">
-              {activeTab === "user"
-                ? "No user notes yet. Click 'Add Note' to create one."
-                : "No AI recommendations yet."}
-            </p>
+          {/* Tabs */}
+          <div className="flex gap-4 border-b border-border mb-6">
+            <button
+              onClick={() => setActiveTab("user")}
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
+                activeTab === "user"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+              data-testid="tab-user-notes"
+            >
+              <span className="font-medium">User Notes</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("ai")}
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
+                activeTab === "ai"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+              data-testid="tab-ai-recommendations"
+            >
+              <span className="font-medium">AI</span>
+            </button>
           </div>
-        ) : (
-          <div className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <table className="w-full" data-testid="table-notes">
-                  <thead className="bg-muted sticky top-0 z-20">
-                    <tr>
-                      <th className="px-4 py-3 text-left sticky left-0 bg-muted z-30 w-12" data-testid="table-header-checkbox">
-                        <Checkbox
-                          checked={selectedNotes.length === filteredNotes.length && filteredNotes.length > 0}
-                          onCheckedChange={toggleSelectAll}
-                          data-testid="checkbox-select-all"
-                        />
-                      </th>
+
+          {/* Table Content */}
+          {filteredNotes.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">
+                {activeTab === "user"
+                  ? "No user notes yet. Click 'Add Note' to create one."
+                  : "No AI recommendations yet."}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="overflow-x-auto">
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <table className="w-full" data-testid="table-notes">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="px-4 py-3 text-left sticky left-0 bg-muted z-10 w-12" data-testid="table-header-checkbox">
+                          <Checkbox
+                            checked={selectedNotes.length === filteredNotes.length && filteredNotes.length > 0}
+                            onCheckedChange={toggleSelectAll}
+                            data-testid="checkbox-select-all"
+                          />
+                        </th>
                       <SortableContext
                         items={columnOrder}
                         strategy={horizontalListSortingStrategy}
@@ -1544,7 +1547,8 @@ export default function NotesPage() {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      </main>
 
       {/* Related Items Dialog */}
       <Dialog open={relatedDialogOpen} onOpenChange={setRelatedDialogOpen}>

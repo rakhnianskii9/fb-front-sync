@@ -5,7 +5,7 @@ SOURCE="/home/projects/fb-front-sync/"
 TARGET="/home/projects/new-flowise/packages/fb-front/"
 
 # Исключения (node_modules, dist, .git и т.д.)
-EXCLUDES="--exclude=node_modules --exclude=dist --exclude=.git --exclude=.turbo --exclude=.local --exclude=.config --exclude=sync.sh"
+EXCLUDES="--exclude=node_modules --exclude=dist --exclude=.git --exclude=.turbo --exclude=.local --exclude=.config --exclude=sync.sh --exclude=sync-instruction.md"
 
 case "$1" in
   push)
@@ -26,10 +26,32 @@ case "$1" in
       echo "✅ Синхронизировано: $(date)"
     done
     ;;
+  from-replit)
+    # Полный цикл: GitHub → основной проект
+    echo "📥 Забираю из GitHub..."
+    git pull
+    rsync -avz --delete $EXCLUDES "$SOURCE" "$TARGET"
+    echo "✅ Replit → основной проект"
+    ;;
+  to-replit)
+    # Полный цикл: основной проект → GitHub
+    echo "📤 Отправляю в GitHub..."
+    rsync -avz $EXCLUDES "$TARGET" "$SOURCE"
+    git add .
+    git commit -m "sync: $(date '+%Y-%m-%d %H:%M')" || true
+    git push
+    echo "✅ Основной проект → Replit"
+    ;;
   *)
-    echo "Использование: ./sync.sh [push|pull|watch]"
-    echo "  push  - отправить из fb-front-sync в основной проект"
-    echo "  pull  - забрать из основного проекта в fb-front-sync"
-    echo "  watch - автоматическая синхронизация при изменениях"
+    echo "Использование: ./sync.sh [команда]"
+    echo ""
+    echo "Базовые:"
+    echo "  push       - fb-front-sync → основной проект"
+    echo "  pull       - основной проект → fb-front-sync"
+    echo "  watch      - автосинхронизация при изменениях"
+    echo ""
+    echo "Полный цикл с Git:"
+    echo "  from-replit - git pull + push в основной проект"
+    echo "  to-replit   - pull из основного + git push"
     ;;
 esac
