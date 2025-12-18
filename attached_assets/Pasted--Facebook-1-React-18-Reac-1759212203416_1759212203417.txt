@@ -1,0 +1,101 @@
+# Полный стек модуля Facebook (жёстко зафиксировано)
+
+## 1) Фронтенд
+
+* **Ядро:** React **18**, React Router **6** (basename: `/facebook`), Redux Toolkit **2** + **RTK Query**, TypeScript **5**.
+* **UI:** Material UI **5** (`@mui/material`, `@mui/lab`), Emotion (`@emotion/*`), Notistack **3**.
+* **Таблицы:** **MUI X DataGrid Pro** (`@mui/x-data-grid-pro`) — виртуализация строк/колонок, пин/resize, multi-sort, экспорт.
+* **Диаграммы:**
+
+  * **Recharts** — линии, столбцы (group/stack/100%), область, комбо, scatter, парето.
+  * **ECharts** (`echarts-for-react`) — теплокарта день×час, воронка.
+* **Drag&Drop:** `@dnd-kit/core` + `@dnd-kit/sortable` (конструктор колонок), **react-grid-layout** (канва дашбордов, 12 колонок).
+* **Анимации:** Framer Motion **11**.
+* **Формы/валидация:** Formik **2** + Yup **1**.
+* **Иконки:** `@tabler/icons-react`.
+* **Дата/время:** `dayjs` (локализация, таймзоны через `dayjs/plugin/utc`, `timezone`).
+* **HTTP/SSE:** `axios` + `@microsoft/fetch-event-source` (прогресс джоб).
+* **Сборка:** Vite **5** (`@vitejs/plugin-react`).
+* **PWA:** `vite-plugin-pwa` (scope: **`/facebook`**).
+* **Код-стайл:** ESLint + Prettier, Husky + pretty-quick (pre-commit).
+* **Тесты:** React Testing Library, Jest + `@testing-library/jest-dom`.
+
+## 2) Бэкенд (отдельные контейнеры)
+
+* **ads-api (REST/SSE):** Node.js **20 LTS**, **Fastify 4**, TypeScript **5**, `pino` (логи), `zod` (валидация схем).
+* **ads-worker (очереди):** Node.js **20**, **BullMQ** (queues: `fetch`, `aggregate`, `export`), общий код домена с api.
+* **Клиент к Meta:** `axios` (Graph API), контроль retry/backoff, лимит на окно запросов.
+* **Rate limit:** `@fastify/rate-limit` (Redis store), лимит на app и на ad-account.
+* **Auth:** проверка существующей сессии Flowise (cookie/JWT) на уровне reverse-proxy + прокидка user/workspace.
+* **Схема API (минимум):**
+
+  * `GET /facebook/api/assets/summary`
+  * `GET /facebook/api/list/{adAccounts|campaigns|adsets|ads|creatives}`
+  * `GET /facebook/api/insights/{daily|hourly}`
+  * `POST /facebook/api/reports` · `GET /facebook/api/reports/:id`
+  * `POST /facebook/api/export` · `GET /facebook/api/jobs/:id` (SSE)
+  * `GET /facebook/api/health`
+
+## 3) Данные
+
+* **PostgreSQL:** **15** (общий кластер, схема **`ads`**).
+* **ORM:** TypeORM **0.3.20** (миграции в `ads` + связи в `core`).
+* **Redis:** **7** (Alpine), key-namespace `ads:*`.
+* **Стратегии:**
+
+  * **Кэш raw ответов Graph API:** `ads:raw:{act_id}:{hash}:{date}` (TTL 48–72ч).
+  * **Агрегаты для UI:** `ads:agg:{report_id}:{gran}:{range}:{attrib}:{conv}` (TTL 30д).
+  * **Очереди/джобы:** `ads:queue:*`, `ads:job:*` (BullMQ).
+  * **Идемпотентность:** `ads:idem:{report_id}:{hash}` (TTL 24ч).
+
+## 4) База (минимально необходимое)
+
+* **Справочники (ads):** `ad_accounts`, `campaigns`, `ad_sets`, `ads`, `creatives`.
+* **Отчёты:** `reports`, `report_selection`, `report_layout`, `report_columns`.
+* **Факты:** `insights_daily`, `insights_hourly`.
+* **Интеграция с существующим FB-ядром:**
+
+  * Используются `workspace_facebook_config`, `facebook_ad_account`, `facebook_page`, `facebook_pixel`, `facebook_token_audit`,
+    `workspace_facebook_business_user`, `workspace_facebook_instagram_account`, `workspace_facebook_whatsapp_account`.
+  * На `facebook_page` — поле **`dataset_id`** (WA).
+  * Уникальные индексы: (`configId`,`ad_account_id`), (`configId`,`page_id`), (`configId`,`pixel_id`).
+  * Partial UNIQUE: одна `is_primary=TRUE` на `configId`.
+
+## 5) Инфраструктура и деплой
+
+* **Reverse-proxy:** Nginx (или Traefik). Маршрутизация:
+
+  * `^/facebook$` и статические `/facebook/*` → фронт (SPA, basepath `/facebook`).
+  * `^/facebook/api/*` → `ads-api`.
+  * остальное → основной Flowise.
+* **Docker Compose:** сервисы `flowise`, `ads-api`, `ads-worker`, `redis`, `postgres`, `proxy` в одной сети.
+* **CI/CD:** multi-stage Docker (Node 20-alpine build → Nginx serve), `HEALTHCHECK` у api/worker, промо окружений через `.env`.
+* **Runtime-config фронта:** `window.__APP_CONFIG__` (инъекция `ADS_API_BASE_URL`, фича-флаги).
+
+## 6) Наблюдаемость и безопасность
+
+* **Метрики:** `prom-client` (api/worker) → Prometheus; Grafana dashboards.
+* **Логи:** `pino` (JSON), корреляция по `request-id`.
+* **Алёрты:** 5xx `ads-api`, рост очереди `fetch/aggregate`, доля cache-hit.
+* **Sentry:** фронт + api (ошибки).
+* **Secrets:** токены Meta/System User — в секретах оркестратора, не в образах.
+* **CORS:** не используется (один домен).
+* **PWA-scope:** строго `/facebook`.
+
+## 7) UX-правила (жёстко для UI)
+
+* Левая панель: **Проект → Аккаунты → Кампании → Уровень → Отчёты**.
+* Конструктор колонок: **[чекбокс] Название … [иконка перетаскивания]**, без крестиков; таблица берёт **только отмеченные** и **в том же порядке**.
+* Сравнение периодов: KPI/таблица/графики с **Δ/Δ%**; последний день помечается «неполный».
+* Дэшборд: **react-grid-layout** dnd/resize, пресеты.
+* «Активы»: один **Dataset ID (WA)** с копированием, события/ошибки/последняя доставка, ссылки в Meta.
+* Экспорт: таблица CSV/XLSX (только видимые колонки), дэшборд PNG/PDF.
+
+## 8) Версии и пакеты (точно)
+
+* Node **20.11+**, PNPM **9**, TypeScript **5.5+**.
+* Fastify **4.26+**, BullMQ **5+**, ioredis **5+**, axios **1.6+**, `@fastify/rate-limit` **8+**.
+* React **18.2**, Redux Toolkit **2.2+**, MUI **5.15+**, MUI X DataGrid Pro **7+**, Recharts **2.10+**, `echarts` **5.5+**, `echarts-for-react` **3+**, `@dnd-kit/*` **6+**, `react-grid-layout` **1.4+**.
+* Postgres **15.x**, Redis **7.x**.
+
+Это финальная конфигурация. Под неё проект собирается в Docker, работает под одним доменом (`/facebook`), использует вашу текущую основу и гарантирует производительность, кэш и масштабирование без «если» и «может быть».

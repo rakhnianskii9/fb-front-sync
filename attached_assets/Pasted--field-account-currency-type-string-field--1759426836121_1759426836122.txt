@@ -1,0 +1,770 @@
+[
+    {
+        "field": "account_currency",
+        "type": "string"
+    },
+    {
+        "field": "account_id",
+        "type": "string"
+    },
+    {
+        "field": "account_name",
+        "type": "string"
+    },
+    {
+        "field": "action_values",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "ad_click_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "ad_id",
+        "type": "string"
+    },
+    {
+        "field": "ad_impression_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "ad_name",
+        "type": "string"
+    },
+    {
+        "field": "adset_end",
+        "type": "string"
+    },
+    {
+        "field": "adset_id",
+        "type": "string"
+    },
+    {
+        "field": "adset_name",
+        "type": "string"
+    },
+    {
+        "field": "adset_start",
+        "type": "string"
+    },
+    {
+        "field": "age_targeting",
+        "type": "string"
+    },
+    {
+        "field": "attribution_setting",
+        "type": "string"
+    },
+    {
+        "field": "auction_bid",
+        "type": "string"
+    },
+    {
+        "field": "auction_competitiveness",
+        "type": "string"
+    },
+    {
+        "field": "auction_max_competitor_bid",
+        "type": "string"
+    },
+    {
+        "field": "average_purchases_conversion_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "buying_type",
+        "type": "string"
+    },
+    {
+        "field": "campaign_id",
+        "type": "string"
+    },
+    {
+        "field": "campaign_name",
+        "type": "string"
+    },
+    {
+        "field": "canvas_avg_view_percent",
+        "type": "string"
+    },
+    {
+        "field": "canvas_avg_view_time",
+        "type": "string"
+    },
+    {
+        "field": "catalog_segment_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "catalog_segment_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "catalog_segment_value_mobile_purchase_roas",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "catalog_segment_value_omni_purchase_roas",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "catalog_segment_value_website_purchase_roas",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "clicks",
+        "type": "string"
+    },
+    {
+        "field": "conversion_lead_rate",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "conversion_leads",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "conversion_rate_ranking",
+        "type": "string"
+    },
+    {
+        "field": "conversion_values",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "conversions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_app_custom_event_fb_mobile_purchase",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_app_custom_event_fb_mobile_purchase_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_offline_purchase",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_offline_purchase_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_omni_purchase",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_omni_purchase_values",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_quantity",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_website_pixel_purchase",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_product_website_pixel_purchase_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_app_custom_event_fb_mobile_purchase",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_app_custom_event_fb_mobile_purchase_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_offline_purchase",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_offline_purchase_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_omni_purchase",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_omni_purchase_values",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_quantity",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_website_pixel_purchase",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "converted_promoted_product_website_pixel_purchase_value",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_15_sec_video_view",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_2_sec_continuous_video_view",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_action_type",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_ad_click",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_conversion",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_conversion_lead",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_dda_countby_convs",
+        "type": "string"
+    },
+    {
+        "field": "cost_per_estimated_ad_recallers",
+        "type": "string"
+    },
+    {
+        "field": "cost_per_inline_link_click",
+        "type": "string"
+    },
+    {
+        "field": "cost_per_inline_post_engagement",
+        "type": "string"
+    },
+    {
+        "field": "cost_per_objective_result",
+        "type": "list<Object>"
+    },
+    {
+        "field": "cost_per_one_thousand_ad_impression",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_outbound_click",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_result",
+        "type": "list<Object>"
+    },
+    {
+        "field": "cost_per_thruplay",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_unique_action_type",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_unique_click",
+        "type": "string"
+    },
+    {
+        "field": "cost_per_unique_conversion",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cost_per_unique_inline_link_click",
+        "type": "string"
+    },
+    {
+        "field": "cost_per_unique_outbound_click",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "cpc",
+        "type": "string"
+    },
+    {
+        "field": "cpm",
+        "type": "string"
+    },
+    {
+        "field": "cpp",
+        "type": "string"
+    },
+    {
+        "field": "created_time",
+        "type": "string"
+    },
+    {
+        "field": "creative_media_type",
+        "type": "string"
+    },
+    {
+        "field": "ctr",
+        "type": "string"
+    },
+    {
+        "field": "date_start",
+        "type": "string"
+    },
+    {
+        "field": "date_stop",
+        "type": "string"
+    },
+    {
+        "field": "dda_countby_convs",
+        "type": "string"
+    },
+    {
+        "field": "dda_results",
+        "type": "list<Object>"
+    },
+    {
+        "field": "engagement_rate_ranking",
+        "type": "string"
+    },
+    {
+        "field": "estimated_ad_recall_rate",
+        "type": "string"
+    },
+    {
+        "field": "estimated_ad_recall_rate_lower_bound",
+        "type": "string"
+    },
+    {
+        "field": "estimated_ad_recall_rate_upper_bound",
+        "type": "string"
+    },
+    {
+        "field": "estimated_ad_recallers",
+        "type": "string"
+    },
+    {
+        "field": "estimated_ad_recallers_lower_bound",
+        "type": "string"
+    },
+    {
+        "field": "estimated_ad_recallers_upper_bound",
+        "type": "string"
+    },
+    {
+        "field": "frequency",
+        "type": "string"
+    },
+    {
+        "field": "full_view_impressions",
+        "type": "string"
+    },
+    {
+        "field": "full_view_reach",
+        "type": "string"
+    },
+    {
+        "field": "gender_targeting",
+        "type": "string"
+    },
+    {
+        "field": "impressions",
+        "type": "string"
+    },
+    {
+        "field": "inline_link_click_ctr",
+        "type": "string"
+    },
+    {
+        "field": "inline_link_clicks",
+        "type": "string"
+    },
+    {
+        "field": "inline_post_engagement",
+        "type": "string"
+    },
+    {
+        "field": "instagram_upcoming_event_reminders_set",
+        "type": "string"
+    },
+    {
+        "field": "instant_experience_clicks_to_open",
+        "type": "string"
+    },
+    {
+        "field": "instant_experience_clicks_to_start",
+        "type": "string"
+    },
+    {
+        "field": "instant_experience_outbound_clicks",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "interactive_component_tap",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "labels",
+        "type": "string"
+    },
+    {
+        "field": "landing_page_view_actions_per_link_click",
+        "type": "string"
+    },
+    {
+        "field": "landing_page_view_per_link_click",
+        "type": "string"
+    },
+    {
+        "field": "landing_page_view_per_purchase_rate",
+        "type": "string"
+    },
+    {
+        "field": "link_clicks_per_results",
+        "type": "list<Object>"
+    },
+    {
+        "field": "location",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_click_rate_benchmark",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_cost_per_delivered",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_cost_per_link_btn_click",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_delivered",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_delivery_rate",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_link_btn_click",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_link_btn_click_rate",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_media_view_rate",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_phone_call_btn_click_rate",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_quick_reply_btn_click",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_quick_reply_btn_click_rate",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_read",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_read_rate",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_read_rate_benchmark",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_sent",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_spend",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_spend_currency",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_website_add_to_cart",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_website_initiate_checkout",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_website_purchase",
+        "type": "string"
+    },
+    {
+        "field": "marketing_messages_website_purchase_values",
+        "type": "string"
+    },
+    {
+        "field": "mobile_app_purchase_roas",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "objective",
+        "type": "string"
+    },
+    {
+        "field": "objective_result_rate",
+        "type": "list<Object>"
+    },
+    {
+        "field": "objective_results",
+        "type": "list<Object>"
+    },
+    {
+        "field": "onsite_conversion_messaging_detected_purchase_deduped",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "optimization_goal",
+        "type": "string"
+    },
+    {
+        "field": "outbound_clicks",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "outbound_clicks_ctr",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "place_page_name",
+        "type": "string"
+    },
+    {
+        "field": "product_group_retailer_id",
+        "type": "string"
+    },
+    {
+        "field": "product_retailer_id",
+        "type": "string"
+    },
+    {
+        "field": "product_views",
+        "type": "string"
+    },
+    {
+        "field": "purchase_per_landing_page_view",
+        "type": "string"
+    },
+    {
+        "field": "purchase_roas",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "purchases_per_link_click",
+        "type": "string"
+    },
+    {
+        "field": "qualifying_question_qualify_answer_rate",
+        "type": "string"
+    },
+    {
+        "field": "quality_ranking",
+        "type": "string"
+    },
+    {
+        "field": "reach",
+        "type": "string"
+    },
+    {
+        "field": "result_rate",
+        "type": "list<Object>"
+    },
+    {
+        "field": "result_values_performance_indicator",
+        "type": "string"
+    },
+    {
+        "field": "results",
+        "type": "list<Object>"
+    },
+    {
+        "field": "shops_assisted_purchases",
+        "type": "string"
+    },
+    {
+        "field": "social_spend",
+        "type": "string"
+    },
+    {
+        "field": "spend",
+        "type": "string"
+    },
+    {
+        "field": "total_card_view",
+        "type": "string"
+    },
+    {
+        "field": "total_postbacks",
+        "type": "string"
+    },
+    {
+        "field": "total_postbacks_detailed",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "total_postbacks_detailed_v4",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "unique_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "unique_clicks",
+        "type": "string"
+    },
+    {
+        "field": "unique_conversions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "unique_ctr",
+        "type": "string"
+    },
+    {
+        "field": "unique_inline_link_click_ctr",
+        "type": "string"
+    },
+    {
+        "field": "unique_inline_link_clicks",
+        "type": "string"
+    },
+    {
+        "field": "unique_link_clicks_ctr",
+        "type": "string"
+    },
+    {
+        "field": "unique_outbound_clicks",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "unique_outbound_clicks_ctr",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "unique_video_continuous_2_sec_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "unique_video_view_15_sec",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "updated_time",
+        "type": "string"
+    },
+    {
+        "field": "video_15_sec_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_30_sec_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_avg_time_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_continuous_2_sec_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_p100_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_p25_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_p50_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_p75_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_p95_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_play_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_play_curve_actions",
+        "type": "list<AdsHistogramStats>"
+    },
+    {
+        "field": "video_play_retention_0_to_15s_actions",
+        "type": "list<AdsHistogramStats>"
+    },
+    {
+        "field": "video_play_retention_20_to_60s_actions",
+        "type": "list<AdsHistogramStats>"
+    },
+    {
+        "field": "video_play_retention_graph_actions",
+        "type": "list<AdsHistogramStats>"
+    },
+    {
+        "field": "video_thruplay_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_time_watched_actions",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "video_view_per_impression",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "website_ctr",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "website_purchase_roas",
+        "type": "list<AdsActionStats>"
+    },
+    {
+        "field": "wish_bid",
+        "type": "string"
+    }
+]

@@ -1,0 +1,40 @@
+Каркас приложения
+* React 18, ReactDOM 18, StrictMode.
+* Маршрутизация: React Router 6 (react-router, react-router-dom).
+* Состояние: Redux (redux, @reduxjs/toolkit) + контекстные провайдеры (ConfigProvider, ErrorProvider, ConfirmContext, ReactFlowContext).
+* Уведомления: Notistack.
+UI и стили
+* Material UI 5 (@mui/material, @mui/base, @mui/lab, @mui/icons-material), @emotion/react, @emotion/styled, @emotion/cache.
+* Таблицы и деревья: @mui/x-data-grid, @mui/x-tree-view.
+* Темизация и SCSS: собственные темы (src/themes) + style.scss.
+* Анимации: Framer Motion.
+* Иконки: @tabler/icons-react.
+Редакторы и визуальные компоненты
+* Рабочие области/диаграммы: ReactFlow (reactflow, tippy.js).
+* Текстовое редактирование: Tiptap 2 (@tiptap/*).
+* Кодовые редакторы: CodeMirror 6 (@codemirror/*, @uiw/react-codemirror, темы Sublime/VSC).
+* Markdown и формулы: react-markdown, remark-gfm, remark-math, rehype-raw, rehype-mathjax, showdown.
+* Подсветка кода: react-syntax-highlighter, react-code-blocks.
+Формы, валидация и UX
+* Formik + Yup.
+* react-datepicker, react-color, react-perfect-scrollbar, react-rewards, react-device-detect.
+* Утилиты: lodash, clsx, moment, uuid.
+Работа с данными и сетью
+* HTTP: axios, @microsoft/fetch-event-source.
+* Безопасный рендер HTML: dompurify, html-react-parser.
+* Встроенные виджеты: flowise-embed, flowise-embed-react, flowise-react-json-view.
+Визуализация
+* Диаграммы: Recharts.
+Сборка и инфраструктура
+* Vite 5 (vite, @vitejs/plugin-react, vite-plugin-pwa, vite-plugin-react-js-support), alias-конфигурация и прокси в vite.config.js.
+* Dotenv для конфигурации.
+* Babel-предустановки (@babel/preset-react).
+* PWA: сервис-воркер (serviceWorker.js), manifest.json.
+Тестирование и качество
+* React Testing Library (@testing-library/react, @testing-library/jest-dom, @testing-library/user-event).
+* Pre-commit: pretty-quick, ESLint/Prettier (на уровне монорепозитория).
+* Командная поддержка: rimraf, sass.
+Библиотека компонентов (packages/components)
+* TypeScript + tsc, Gulp для ассетов (gulpfile.ts), Jest/ts-jest, ESLint.
+* Богатый набор интеграций (LangChain, OpenAI, Supabase и др.) для Node-инструментов, используемых также на фронтенде через общие пакеты.
+Источники: package.json, vite.config.js, index.jsx, serviceWorker.js, package.json, корневой package.json.
