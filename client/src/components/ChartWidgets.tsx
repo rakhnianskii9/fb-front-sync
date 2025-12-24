@@ -107,6 +107,7 @@ function LineChartWidgetInner({
   
   // Инициализация Brush — используем значения из Redux если есть, иначе дефолты
   const getInitialStartIndex = () => {
+    if (data.length === 0) return 0;
     if (initialBrushStart !== undefined && initialBrushStart >= 0 && initialBrushStart < data.length) {
       return initialBrushStart;
     }
@@ -114,6 +115,7 @@ function LineChartWidgetInner({
   };
   
   const getInitialEndIndex = () => {
+    if (data.length === 0) return 0;
     if (initialBrushEnd !== undefined && initialBrushEnd >= 0 && initialBrushEnd < data.length) {
       return initialBrushEnd;
     }
@@ -148,9 +150,9 @@ function LineChartWidgetInner({
     // Don't reset during drag
     if (isDraggingRef.current) return;
     
-    const newEndIndex = data.length - 1;
-    const newStartIndex = showBrush 
-      ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE)
+    const newEndIndex = Math.max(0, data.length - 1);
+    const newStartIndex = showBrush && data.length > 0
+      ? Math.min(newEndIndex, Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE))
       : 0;
     setBrushStartIndex(newStartIndex);
     setBrushEndIndex(newEndIndex);
@@ -173,13 +175,7 @@ function LineChartWidgetInner({
     }, {} as ChartConfig);
   }, [metricKeys, metricLabels, showComparison]);
 
-  if (data.length === 0 || metricKeys.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        No data available
-      </div>
-    );
-  }
+  const hasData = data.length > 0 && metricKeys.length > 0;
 
   const zoom = () => {
     if (refAreaLeft === refAreaRight || refAreaRight === '') {
@@ -206,9 +202,10 @@ function LineChartWidgetInner({
     setRefAreaRight('');
   };
 
-  const viewportSize = brushEndIndex - brushStartIndex;
+  const viewportSize = Math.max(0, brushEndIndex - brushStartIndex);
   
   const handleBrushLeft = useCallback(() => {
+    if (data.length === 0) return;
     const step = Math.max(1, Math.floor(viewportSize / 5));
     const newStart = Math.max(0, brushStartIndex - step);
     const newEnd = Math.min(newStart + viewportSize, data.length - 1);
@@ -219,6 +216,7 @@ function LineChartWidgetInner({
   }, [viewportSize, brushStartIndex, data.length, onBrushChange]);
 
   const handleBrushRight = useCallback(() => {
+    if (data.length === 0) return;
     const step = Math.max(1, Math.floor(viewportSize / 5));
     const newEnd = Math.min(data.length - 1, brushEndIndex + step);
     const newStart = Math.max(0, newEnd - viewportSize);
@@ -232,7 +230,7 @@ function LineChartWidgetInner({
   const lastBrushUpdateRef = useRef(0);
   const pendingBrushRef = useRef<{startIndex: number, endIndex: number} | null>(null);
   
-  const handleBrushChange = useCallback((brushData: any) => {
+  const handleInternalBrushChange = useCallback((brushData: any) => {
     if (!brushData || brushData.startIndex === undefined || brushData.endIndex === undefined) {
       isDraggingRef.current = false;
       return;
@@ -287,126 +285,140 @@ function LineChartWidgetInner({
 
   return (
     <div className="h-full w-full min-h-[16rem] relative flex flex-col">
-      {warning && <ChartWarning message={warning} reason={warningReason} />}
-      <div className="flex-1 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart 
-          data={data} 
-          margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
-          onMouseDown={(e: any) => e && e.activeLabel && setRefAreaLeft(e.activeLabel)}
-          onMouseMove={(e: any) => refAreaLeft && e && e.activeLabel && setRefAreaRight(e.activeLabel)}
-          onMouseUp={zoom}
-          onDoubleClick={zoomOut}
-        >
-          {showGrid && <CartesianGrid strokeDasharray="2 2" stroke="#999999" opacity={1} syncWithTicks={true} />}
-          <XAxis 
-            dataKey="date" 
-            tick={{ fontSize: 11 }}
-            stroke="hsl(var(--muted-foreground))"
-            tickMargin={8}
-            minTickGap={50}
-            interval="preserveStartEnd"
-            domain={[left, right]}
-            allowDataOverflow
-            type="category"
-          />
-          <YAxis 
-            tickFormatter={formatNumber}
-            tick={{ fontSize: 11 }}
-            stroke="hsl(var(--muted-foreground))"
-            tickMargin={8}
-            tickCount={15}
-            width={50}
-            interval={0}
-          />
-          <Tooltip 
-            cursor={{ stroke: 'hsl(0, 84%, 60%)', strokeWidth: 3 }}
-            content={(props) => <SmartTooltip {...props} formatNumber={formatTooltipNumber} />}
-          />
-          {metricKeys.map((key, idx) => (
-            <Line
-              key={key}
-              type="monotone"
-              dataKey={key}
-              stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-              strokeWidth={3}
-              dot={false}
-              activeDot={{ fill: 'hsl(0, 84%, 60%)', r: 6 }}
-              name={metricLabels[key] || key}
-              isAnimationActive={false}
-            />
-          ))}
-          {showComparison && metricKeys.map((key, idx) => (
-            <Line
-              key={`${key}_prev`}
-              type="monotone"
-              dataKey={`${key}_prev`}
-              stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-              strokeWidth={3}
-              strokeDasharray="5 5"
-              dot={false}
-              activeDot={{ fill: 'hsl(0, 84%, 60%)', r: 6 }}
-              name={`${metricLabels[key] || key} (Prev.)`}
-              isAnimationActive={false}
-            />
-          ))}
-          {refAreaLeft && refAreaRight && (
-            <ReferenceArea
-              x1={refAreaLeft}
-              x2={refAreaRight}
-              strokeOpacity={0.3}
-              fill="hsl(var(--primary))"
-              fillOpacity={0.3}
-            />
-          )}
-          {showBrush && (
-            <Brush
-              dataKey="date"
-              height={20}
-              stroke="hsl(var(--border))"
-              fill="hsl(var(--muted)/60)"
-              travellerWidth={10}
-              tickFormatter={(value) => value}
-              startIndex={brushStartIndex}
-              endIndex={brushEndIndex}
-              onChange={handleBrushChange}
-            />
-          )}
-        </LineChart>
-        </ResponsiveContainer>
-      </div>
-      {showBrush && data.length > 0 && (
-        <div className="flex items-center justify-center gap-2 px-2 mt-1">
-          <button
-            onClick={handleBrushLeft}
-            disabled={brushStartIndex === 0}
-            className="p-0.5 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
-            data-testid="brush-left"
-            title="Scroll left"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M10 12L6 8l4-4v8z"/>
-            </svg>
-          </button>
-          <button
-            onClick={handleBrushRight}
-            disabled={brushEndIndex >= data.length - 1}
-            className="p-0.5 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
-            data-testid="brush-right"
-            title="Scroll right"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M6 4l4 4-4 4V4z"/>
-            </svg>
-          </button>
+      {!hasData ? (
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          No data available
         </div>
-      )}
-      {showLegend && (
-        <CustomChartLegend 
-          metricKeys={metricKeys}
-          metricLabels={metricLabels}
-          showComparison={showComparison}
-        />
+      ) : (
+        <>
+          {warning && <ChartWarning message={warning} reason={warningReason} />}
+          <div className="flex-1 min-h-0">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              minWidth={100}
+              minHeight={100}
+              initialDimension={{ width: 100, height: 100 }}
+            >
+              <LineChart 
+              data={data} 
+              margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
+              onMouseDown={(e: any) => e && e.activeLabel && setRefAreaLeft(e.activeLabel)}
+              onMouseMove={(e: any) => refAreaLeft && e && e.activeLabel && setRefAreaRight(e.activeLabel)}
+              onMouseUp={zoom}
+              onDoubleClick={zoomOut}
+            >
+              {showGrid && <CartesianGrid strokeDasharray="2 2" stroke="#999999" opacity={1} syncWithTicks={true} />}
+              <XAxis 
+                dataKey="date" 
+                tick={{ fontSize: 11 }}
+                stroke="hsl(var(--muted-foreground))"
+                tickMargin={8}
+                minTickGap={50}
+                interval="preserveStartEnd"
+                domain={[left, right]}
+                allowDataOverflow
+                type="category"
+              />
+              <YAxis 
+                tickFormatter={formatNumber}
+                tick={{ fontSize: 11 }}
+                stroke="hsl(var(--muted-foreground))"
+                tickMargin={8}
+                tickCount={15}
+                width={50}
+                interval={0}
+              />
+              <Tooltip 
+                cursor={{ stroke: 'hsl(0, 84%, 60%)', strokeWidth: 3 }}
+                content={(props) => <SmartTooltip {...props} formatNumber={formatTooltipNumber} />}
+              />
+              {metricKeys.map((key, idx) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={{ fill: 'hsl(0, 84%, 60%)', r: 6 }}
+                  name={metricLabels[key] || key}
+                  isAnimationActive={false}
+                />
+              ))}
+              {showComparison && metricKeys.map((key, idx) => (
+                <Line
+                  key={`${key}_prev`}
+                  type="monotone"
+                  dataKey={`${key}_prev`}
+                  stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                  strokeWidth={3}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  activeDot={{ fill: 'hsl(0, 84%, 60%)', r: 6 }}
+                  name={`${metricLabels[key] || key} (Prev.)`}
+                  isAnimationActive={false}
+                />
+              ))}
+              {refAreaLeft && refAreaRight && (
+                <ReferenceArea
+                  x1={refAreaLeft}
+                  x2={refAreaRight}
+                  strokeOpacity={0.3}
+                  fill="hsl(var(--primary))"
+                  fillOpacity={0.3}
+                />
+              )}
+              {showBrush && (
+                <Brush
+                  dataKey="date"
+                  height={20}
+                  stroke="hsl(var(--border))"
+                  fill="hsl(var(--muted)/60)"
+                  travellerWidth={10}
+                  tickFormatter={(value) => value}
+                  startIndex={brushStartIndex}
+                  endIndex={brushEndIndex}
+                  onChange={handleInternalBrushChange}
+                />
+              )}
+            </LineChart>
+            </ResponsiveContainer>
+          </div>
+          {showBrush && data.length > 0 && (
+            <div className="flex items-center justify-center gap-2 px-2 mt-1">
+              <button
+                onClick={handleBrushLeft}
+                disabled={brushStartIndex === 0}
+                className="p-0.5 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                data-testid="brush-left"
+                title="Scroll left"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M10 12L6 8l4-4v8z"/>
+                </svg>
+              </button>
+              <button
+                onClick={handleBrushRight}
+                disabled={brushEndIndex >= data.length - 1}
+                className="p-0.5 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                data-testid="brush-right"
+                title="Scroll right"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M6 4l4 4-4 4V4z"/>
+                </svg>
+              </button>
+            </div>
+          )}
+          {showLegend && (
+            <CustomChartLegend 
+              metricKeys={metricKeys}
+              metricLabels={metricLabels}
+              showComparison={showComparison}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -423,50 +435,134 @@ function BarChartWidgetInner({
   showComparison = false,
   warning,
   warningReason,
+  initialBrushStart,
+  initialBrushEnd,
+  onBrushChange,
 }: BaseChartProps) {
   // Показывать Brush только для больших датасетов (> 60 точек)
   const showBrush = data.length > BRUSH_THRESHOLD;
-  const viewportSize = Math.min(DEFAULT_VIEWPORT_SIZE, data.length);
   
-  // Brush navigation state - для больших датасетов показываем последние N точек
-  const [brushStartIndex, setBrushStartIndex] = useState(() => 
-    showBrush ? Math.max(0, data.length - viewportSize) : 0
-  );
-  const [brushEndIndex, setBrushEndIndex] = useState(data.length - 1);
-  
-  // Сбрасываем индексы при изменении данных
-  useEffect(() => {
-    if (showBrush) {
-      setBrushStartIndex(Math.max(0, data.length - viewportSize));
-      setBrushEndIndex(data.length - 1);
-    } else {
-      setBrushStartIndex(0);
-      setBrushEndIndex(data.length - 1);
+  // Инициализация Brush — используем значения из Redux если есть, иначе дефолты
+  const getInitialStartIndex = () => {
+    if (initialBrushStart !== undefined && initialBrushStart >= 0 && initialBrushStart < data.length) {
+      return initialBrushStart;
     }
-  }, [data.length, showBrush, viewportSize]);
+    return showBrush ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE) : 0;
+  };
+  
+  const getInitialEndIndex = () => {
+    if (initialBrushEnd !== undefined && initialBrushEnd >= 0 && initialBrushEnd < data.length) {
+      return initialBrushEnd;
+    }
+    return data.length - 1;
+  };
+  
+  const [brushStartIndex, setBrushStartIndex] = useState(getInitialStartIndex);
+  const [brushEndIndex, setBrushEndIndex] = useState(getInitialEndIndex);
+  
+  // Track if user is dragging to prevent data-change resets
+  const isDraggingRef = useRef(false);
+  const dataLengthRef = useRef(data.length);
+  
+  // Sync with Redux values when they change (e.g., on report switch)
+  useEffect(() => {
+    if (initialBrushStart !== undefined && initialBrushEnd !== undefined) {
+      if (initialBrushStart >= 0 && initialBrushStart < data.length &&
+          initialBrushEnd >= 0 && initialBrushEnd < data.length &&
+          !isDraggingRef.current) {
+        setBrushStartIndex(initialBrushStart);
+        setBrushEndIndex(initialBrushEnd);
+      }
+    }
+  }, [initialBrushStart, initialBrushEnd, data.length]);
+  
+  // Обновляем при изменении данных, но только если не перетаскиваем
+  useEffect(() => {
+    if (dataLengthRef.current === data.length) return;
+    dataLengthRef.current = data.length;
+    if (isDraggingRef.current) return;
+    
+    const newEndIndex = data.length - 1;
+    const newStartIndex = showBrush 
+      ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE)
+      : 0;
+    setBrushStartIndex(newStartIndex);
+    setBrushEndIndex(newEndIndex);
+  }, [data.length, showBrush]);
 
-  const handleBrushLeft = () => {
+  const viewportSize = brushEndIndex - brushStartIndex;
+
+  const handleBrushLeft = useCallback(() => {
     const step = Math.max(1, Math.floor(viewportSize / 5));
     const newStart = Math.max(0, brushStartIndex - step);
-    const newEnd = Math.max(viewportSize - 1, brushEndIndex - step);
+    const newEnd = Math.min(newStart + viewportSize, data.length - 1);
     setBrushStartIndex(newStart);
     setBrushEndIndex(newEnd);
-  };
+    onBrushChange?.(newStart, newEnd);
+  }, [viewportSize, brushStartIndex, data.length, onBrushChange]);
 
-  const handleBrushRight = () => {
+  const handleBrushRight = useCallback(() => {
     const step = Math.max(1, Math.floor(viewportSize / 5));
-    const newStart = Math.min(data.length - viewportSize, brushStartIndex + step);
     const newEnd = Math.min(data.length - 1, brushEndIndex + step);
+    const newStart = Math.max(0, newEnd - viewportSize);
     setBrushStartIndex(newStart);
     setBrushEndIndex(newEnd);
-  };
+    onBrushChange?.(newStart, newEnd);
+  }, [viewportSize, brushEndIndex, data.length, onBrushChange]);
 
-  const handleBrushChange = (brushData: any) => {
-    if (brushData && brushData.startIndex !== undefined && brushData.endIndex !== undefined) {
-      setBrushStartIndex(brushData.startIndex);
-      setBrushEndIndex(brushData.endIndex);
+  // Throttled brush change handler
+  const lastBrushUpdateRef = useRef(0);
+  const pendingBrushRef = useRef<{startIndex: number, endIndex: number} | null>(null);
+  
+  const handleInternalBrushChange = useCallback((brushData: any) => {
+    if (!brushData || brushData.startIndex === undefined || brushData.endIndex === undefined) {
+      isDraggingRef.current = false;
+      return;
     }
-  };
+    
+    isDraggingRef.current = true;
+    
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastBrushUpdateRef.current;
+    
+    if (timeSinceLastUpdate < 16) {
+      pendingBrushRef.current = { startIndex: brushData.startIndex, endIndex: brushData.endIndex };
+      return;
+    }
+    
+    lastBrushUpdateRef.current = now;
+    pendingBrushRef.current = null;
+    
+    setBrushStartIndex(brushData.startIndex);
+    setBrushEndIndex(brushData.endIndex);
+  }, []);
+  
+  // Apply pending brush update when drag ends and save to Redux
+  useEffect(() => {
+    const handleMouseUp = () => {
+      let finalStart = brushStartIndex;
+      let finalEnd = brushEndIndex;
+      
+      if (pendingBrushRef.current) {
+        finalStart = pendingBrushRef.current.startIndex;
+        finalEnd = pendingBrushRef.current.endIndex;
+        setBrushStartIndex(finalStart);
+        setBrushEndIndex(finalEnd);
+        pendingBrushRef.current = null;
+      }
+      
+      if (isDraggingRef.current) {
+        onBrushChange?.(finalStart, finalEnd);
+      }
+      
+      setTimeout(() => {
+        isDraggingRef.current = false;
+      }, 100);
+    };
+    
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, [brushStartIndex, brushEndIndex, onBrushChange]);
 
   // Мемоизация конфигурации графика
   const chartConfig = useMemo<ChartConfig>(() => {
@@ -497,7 +593,13 @@ function BarChartWidgetInner({
     <div className="h-full w-full min-h-[16rem] relative flex flex-col">
       {warning && <ChartWarning message={warning} reason={warningReason} />}
       <div className="flex-1 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={100}
+          minHeight={100}
+          initialDimension={{ width: 100, height: 100 }}
+        >
           <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
           {showGrid && <CartesianGrid strokeDasharray="2 2" stroke="#999999" opacity={1} syncWithTicks={true} />}
           <XAxis 
@@ -550,7 +652,7 @@ function BarChartWidgetInner({
               tickFormatter={(value) => value}
               startIndex={brushStartIndex}
               endIndex={brushEndIndex}
-              onChange={handleBrushChange}
+              onChange={handleInternalBrushChange}
             />
           )}
         </BarChart>
@@ -602,50 +704,134 @@ function AreaChartWidgetInner({
   showComparison = false,
   warning,
   warningReason,
+  initialBrushStart,
+  initialBrushEnd,
+  onBrushChange,
 }: BaseChartProps) {
   // Показывать Brush только для больших датасетов (> 60 точек)
   const showBrush = data.length > BRUSH_THRESHOLD;
-  const viewportSize = Math.min(DEFAULT_VIEWPORT_SIZE, data.length);
   
-  // Brush navigation state - для больших датасетов показываем последние N точек
-  const [brushStartIndex, setBrushStartIndex] = useState(() => 
-    showBrush ? Math.max(0, data.length - viewportSize) : 0
-  );
-  const [brushEndIndex, setBrushEndIndex] = useState(data.length - 1);
-  
-  // Сбрасываем индексы при изменении данных
-  useEffect(() => {
-    if (showBrush) {
-      setBrushStartIndex(Math.max(0, data.length - viewportSize));
-      setBrushEndIndex(data.length - 1);
-    } else {
-      setBrushStartIndex(0);
-      setBrushEndIndex(data.length - 1);
+  // Инициализация Brush — используем значения из Redux если есть, иначе дефолты
+  const getInitialStartIndex = () => {
+    if (initialBrushStart !== undefined && initialBrushStart >= 0 && initialBrushStart < data.length) {
+      return initialBrushStart;
     }
-  }, [data.length, showBrush, viewportSize]);
+    return showBrush ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE) : 0;
+  };
+  
+  const getInitialEndIndex = () => {
+    if (initialBrushEnd !== undefined && initialBrushEnd >= 0 && initialBrushEnd < data.length) {
+      return initialBrushEnd;
+    }
+    return data.length - 1;
+  };
+  
+  const [brushStartIndex, setBrushStartIndex] = useState(getInitialStartIndex);
+  const [brushEndIndex, setBrushEndIndex] = useState(getInitialEndIndex);
+  
+  // Track if user is dragging to prevent data-change resets
+  const isDraggingRef = useRef(false);
+  const dataLengthRef = useRef(data.length);
+  
+  // Sync with Redux values when they change (e.g., on report switch)
+  useEffect(() => {
+    if (initialBrushStart !== undefined && initialBrushEnd !== undefined) {
+      if (initialBrushStart >= 0 && initialBrushStart < data.length &&
+          initialBrushEnd >= 0 && initialBrushEnd < data.length &&
+          !isDraggingRef.current) {
+        setBrushStartIndex(initialBrushStart);
+        setBrushEndIndex(initialBrushEnd);
+      }
+    }
+  }, [initialBrushStart, initialBrushEnd, data.length]);
+  
+  // Обновляем при изменении данных, но только если не перетаскиваем
+  useEffect(() => {
+    if (dataLengthRef.current === data.length) return;
+    dataLengthRef.current = data.length;
+    if (isDraggingRef.current) return;
+    
+    const newEndIndex = data.length - 1;
+    const newStartIndex = showBrush 
+      ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE)
+      : 0;
+    setBrushStartIndex(newStartIndex);
+    setBrushEndIndex(newEndIndex);
+  }, [data.length, showBrush]);
 
-  const handleBrushLeft = () => {
+  const viewportSize = brushEndIndex - brushStartIndex;
+
+  const handleBrushLeft = useCallback(() => {
     const step = Math.max(1, Math.floor(viewportSize / 5));
     const newStart = Math.max(0, brushStartIndex - step);
-    const newEnd = Math.max(viewportSize - 1, brushEndIndex - step);
+    const newEnd = Math.min(newStart + viewportSize, data.length - 1);
     setBrushStartIndex(newStart);
     setBrushEndIndex(newEnd);
-  };
+    onBrushChange?.(newStart, newEnd);
+  }, [viewportSize, brushStartIndex, data.length, onBrushChange]);
 
-  const handleBrushRight = () => {
+  const handleBrushRight = useCallback(() => {
     const step = Math.max(1, Math.floor(viewportSize / 5));
-    const newStart = Math.min(data.length - viewportSize, brushStartIndex + step);
     const newEnd = Math.min(data.length - 1, brushEndIndex + step);
+    const newStart = Math.max(0, newEnd - viewportSize);
     setBrushStartIndex(newStart);
     setBrushEndIndex(newEnd);
-  };
+    onBrushChange?.(newStart, newEnd);
+  }, [viewportSize, brushEndIndex, data.length, onBrushChange]);
 
-  const handleBrushChange = (brushData: any) => {
-    if (brushData && brushData.startIndex !== undefined && brushData.endIndex !== undefined) {
-      setBrushStartIndex(brushData.startIndex);
-      setBrushEndIndex(brushData.endIndex);
+  // Throttled brush change handler
+  const lastBrushUpdateRef = useRef(0);
+  const pendingBrushRef = useRef<{startIndex: number, endIndex: number} | null>(null);
+  
+  const handleInternalBrushChange = useCallback((brushData: any) => {
+    if (!brushData || brushData.startIndex === undefined || brushData.endIndex === undefined) {
+      isDraggingRef.current = false;
+      return;
     }
-  };
+    
+    isDraggingRef.current = true;
+    
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastBrushUpdateRef.current;
+    
+    if (timeSinceLastUpdate < 16) {
+      pendingBrushRef.current = { startIndex: brushData.startIndex, endIndex: brushData.endIndex };
+      return;
+    }
+    
+    lastBrushUpdateRef.current = now;
+    pendingBrushRef.current = null;
+    
+    setBrushStartIndex(brushData.startIndex);
+    setBrushEndIndex(brushData.endIndex);
+  }, []);
+  
+  // Apply pending brush update when drag ends and save to Redux
+  useEffect(() => {
+    const handleMouseUp = () => {
+      let finalStart = brushStartIndex;
+      let finalEnd = brushEndIndex;
+      
+      if (pendingBrushRef.current) {
+        finalStart = pendingBrushRef.current.startIndex;
+        finalEnd = pendingBrushRef.current.endIndex;
+        setBrushStartIndex(finalStart);
+        setBrushEndIndex(finalEnd);
+        pendingBrushRef.current = null;
+      }
+      
+      if (isDraggingRef.current) {
+        onBrushChange?.(finalStart, finalEnd);
+      }
+      
+      setTimeout(() => {
+        isDraggingRef.current = false;
+      }, 100);
+    };
+    
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, [brushStartIndex, brushEndIndex, onBrushChange]);
 
   // Мемоизация конфигурации графика
   const chartConfig = useMemo<ChartConfig>(() => {
@@ -676,7 +862,13 @@ function AreaChartWidgetInner({
     <div className="h-full w-full min-h-[16rem] relative flex flex-col">
       {warning && <ChartWarning message={warning} reason={warningReason} />}
       <div className="flex-1 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={100}
+          minHeight={100}
+          initialDimension={{ width: 100, height: 100 }}
+        >
           <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
           {showGrid && <CartesianGrid strokeDasharray="2 2" stroke="#999999" opacity={1} syncWithTicks={true} />}
           <XAxis 
@@ -741,7 +933,7 @@ function AreaChartWidgetInner({
               tickFormatter={(value) => value}
               startIndex={brushStartIndex}
               endIndex={brushEndIndex}
-              onChange={handleBrushChange}
+              onChange={handleInternalBrushChange}
             />
           )}
         </AreaChart>
@@ -864,6 +1056,10 @@ interface MixedChartProps {
   showComparison?: boolean;
   warning?: string;
   warningReason?: string;
+  // Brush range from Redux - for instant responsiveness
+  initialBrushStart?: number;
+  initialBrushEnd?: number;
+  onBrushChange?: (startIndex: number, endIndex: number) => void;
 }
 
 function MixedChartWidgetInner({
@@ -876,50 +1072,134 @@ function MixedChartWidgetInner({
   showComparison = false,
   warning,
   warningReason,
+  initialBrushStart,
+  initialBrushEnd,
+  onBrushChange,
 }: MixedChartProps) {
   // Показывать Brush только для больших датасетов (> 60 точек)
   const showBrush = data.length > BRUSH_THRESHOLD;
-  const viewportSize = Math.min(DEFAULT_VIEWPORT_SIZE, data.length);
   
-  // Brush navigation state - для больших датасетов показываем последние N точек
-  const [brushStartIndex, setBrushStartIndex] = useState(() => 
-    showBrush ? Math.max(0, data.length - viewportSize) : 0
-  );
-  const [brushEndIndex, setBrushEndIndex] = useState(data.length - 1);
-  
-  // Сбрасываем индексы при изменении данных
-  useEffect(() => {
-    if (showBrush) {
-      setBrushStartIndex(Math.max(0, data.length - viewportSize));
-      setBrushEndIndex(data.length - 1);
-    } else {
-      setBrushStartIndex(0);
-      setBrushEndIndex(data.length - 1);
+  // Инициализация Brush — используем значения из Redux если есть, иначе дефолты
+  const getInitialStartIndex = () => {
+    if (initialBrushStart !== undefined && initialBrushStart >= 0 && initialBrushStart < data.length) {
+      return initialBrushStart;
     }
-  }, [data.length, showBrush, viewportSize]);
+    return showBrush ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE) : 0;
+  };
+  
+  const getInitialEndIndex = () => {
+    if (initialBrushEnd !== undefined && initialBrushEnd >= 0 && initialBrushEnd < data.length) {
+      return initialBrushEnd;
+    }
+    return data.length - 1;
+  };
+  
+  const [brushStartIndex, setBrushStartIndex] = useState(getInitialStartIndex);
+  const [brushEndIndex, setBrushEndIndex] = useState(getInitialEndIndex);
+  
+  // Track if user is dragging to prevent data-change resets
+  const isDraggingRef = useRef(false);
+  const dataLengthRef = useRef(data.length);
+  
+  // Sync with Redux values when they change (e.g., on report switch)
+  useEffect(() => {
+    if (initialBrushStart !== undefined && initialBrushEnd !== undefined) {
+      if (initialBrushStart >= 0 && initialBrushStart < data.length &&
+          initialBrushEnd >= 0 && initialBrushEnd < data.length &&
+          !isDraggingRef.current) {
+        setBrushStartIndex(initialBrushStart);
+        setBrushEndIndex(initialBrushEnd);
+      }
+    }
+  }, [initialBrushStart, initialBrushEnd, data.length]);
+  
+  // Обновляем при изменении данных, но только если не перетаскиваем
+  useEffect(() => {
+    if (dataLengthRef.current === data.length) return;
+    dataLengthRef.current = data.length;
+    if (isDraggingRef.current) return;
+    
+    const newEndIndex = data.length - 1;
+    const newStartIndex = showBrush 
+      ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE)
+      : 0;
+    setBrushStartIndex(newStartIndex);
+    setBrushEndIndex(newEndIndex);
+  }, [data.length, showBrush]);
 
-  const handleBrushLeft = () => {
+  const viewportSize = brushEndIndex - brushStartIndex;
+
+  const handleBrushLeft = useCallback(() => {
     const step = Math.max(1, Math.floor(viewportSize / 5));
     const newStart = Math.max(0, brushStartIndex - step);
-    const newEnd = Math.max(viewportSize - 1, brushEndIndex - step);
+    const newEnd = Math.min(newStart + viewportSize, data.length - 1);
     setBrushStartIndex(newStart);
     setBrushEndIndex(newEnd);
-  };
+    onBrushChange?.(newStart, newEnd);
+  }, [viewportSize, brushStartIndex, data.length, onBrushChange]);
 
-  const handleBrushRight = () => {
+  const handleBrushRight = useCallback(() => {
     const step = Math.max(1, Math.floor(viewportSize / 5));
-    const newStart = Math.min(data.length - viewportSize, brushStartIndex + step);
     const newEnd = Math.min(data.length - 1, brushEndIndex + step);
+    const newStart = Math.max(0, newEnd - viewportSize);
     setBrushStartIndex(newStart);
     setBrushEndIndex(newEnd);
-  };
+    onBrushChange?.(newStart, newEnd);
+  }, [viewportSize, brushEndIndex, data.length, onBrushChange]);
 
-  const handleBrushChange = (brushData: any) => {
-    if (brushData && brushData.startIndex !== undefined && brushData.endIndex !== undefined) {
-      setBrushStartIndex(brushData.startIndex);
-      setBrushEndIndex(brushData.endIndex);
+  // Throttled brush change handler
+  const lastBrushUpdateRef = useRef(0);
+  const pendingBrushRef = useRef<{startIndex: number, endIndex: number} | null>(null);
+  
+  const handleInternalBrushChange = useCallback((brushData: any) => {
+    if (!brushData || brushData.startIndex === undefined || brushData.endIndex === undefined) {
+      isDraggingRef.current = false;
+      return;
     }
-  };
+    
+    isDraggingRef.current = true;
+    
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastBrushUpdateRef.current;
+    
+    if (timeSinceLastUpdate < 16) {
+      pendingBrushRef.current = { startIndex: brushData.startIndex, endIndex: brushData.endIndex };
+      return;
+    }
+    
+    lastBrushUpdateRef.current = now;
+    pendingBrushRef.current = null;
+    
+    setBrushStartIndex(brushData.startIndex);
+    setBrushEndIndex(brushData.endIndex);
+  }, []);
+  
+  // Apply pending brush update when drag ends and save to Redux
+  useEffect(() => {
+    const handleMouseUp = () => {
+      let finalStart = brushStartIndex;
+      let finalEnd = brushEndIndex;
+      
+      if (pendingBrushRef.current) {
+        finalStart = pendingBrushRef.current.startIndex;
+        finalEnd = pendingBrushRef.current.endIndex;
+        setBrushStartIndex(finalStart);
+        setBrushEndIndex(finalEnd);
+        pendingBrushRef.current = null;
+      }
+      
+      if (isDraggingRef.current) {
+        onBrushChange?.(finalStart, finalEnd);
+      }
+      
+      setTimeout(() => {
+        isDraggingRef.current = false;
+      }, 100);
+    };
+    
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, [brushStartIndex, brushEndIndex, onBrushChange]);
 
   const chartConfig = useMemo(() => {
     const config: ChartConfig = {};
@@ -966,7 +1246,13 @@ function MixedChartWidgetInner({
     <div className="h-full w-full min-h-[16rem] relative flex flex-col">
       {warning && <ChartWarning message={warning} reason={warningReason} />}
       <div className="flex-1 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={100}
+          minHeight={100}
+          initialDimension={{ width: 100, height: 100 }}
+        >
           <ComposedChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
           {showGrid && <CartesianGrid strokeDasharray="2 2" stroke="#999999" opacity={1} syncWithTicks={true} />}
           <XAxis 
@@ -1046,7 +1332,7 @@ function MixedChartWidgetInner({
               tickFormatter={(value) => value}
               startIndex={brushStartIndex}
               endIndex={brushEndIndex}
-              onChange={handleBrushChange}
+              onChange={handleInternalBrushChange}
             />
           )}
         </ComposedChart>

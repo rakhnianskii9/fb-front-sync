@@ -147,7 +147,13 @@ export const LineChartWidget = memo(function LineChartWidget({
             No data available
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            minWidth={100}
+            minHeight={100}
+            initialDimension={{ width: 100, height: 100 }}
+          >
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
               {showGrid && <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />}
               

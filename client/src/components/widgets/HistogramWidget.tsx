@@ -157,7 +157,13 @@ export const HistogramWidget = memo(function HistogramWidget({
       }
     >
       <div className="h-[200px]">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={100}
+          minHeight={100}
+          initialDimension={{ width: 100, height: 100 }}
+        >
           <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
             <XAxis 

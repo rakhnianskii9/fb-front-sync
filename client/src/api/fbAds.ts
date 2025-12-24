@@ -1158,7 +1158,22 @@ export interface TokenAuditResponse {
 export interface Notification {
   id: string;
   workspaceId: string;
-  type: 'sync_complete' | 'sync_failed' | 'deadline_approaching' | 'deadline_overdue';
+  /** ID воркспейса-источника для глобальных уведомлений */
+  sourceWorkspaceId?: string;
+  /** Название воркспейса-источника для отображения */
+  sourceWorkspaceName?: string;
+  /** Глобальное уведомление видно во всех workspace */
+  isGlobal?: boolean;
+  type: 
+    | 'sync_complete' 
+    | 'sync_failed' 
+    | 'initial_sync_started'
+    | 'initial_sync_paused'
+    | 'report_ready'
+    | 'initial_sync_resumed'
+    | 'incremental_sync'
+    | 'deadline_approaching' 
+    | 'deadline_overdue';
   title: string;
   message: string;
   data: Record<string, any>;

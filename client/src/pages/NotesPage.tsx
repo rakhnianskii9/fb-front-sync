@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns/format";
+import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { NoteEditor } from "@/components/NoteEditor";
 import {

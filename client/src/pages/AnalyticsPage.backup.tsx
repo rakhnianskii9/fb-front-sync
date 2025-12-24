@@ -1451,8 +1451,8 @@ export default function AnalyticsPage() {
     
     logger.log('[AnalyticsPage] Extending data range:', { loadedDays, targetDays });
     toast({
-      title: "Расширение данных",
-      description: `Загружаем данные за ${targetDays} дней... Это может занять 1-3 минуты.`,
+      title: 'Extending data range',
+      description: `Loading data for ${targetDays} days... This may take 1–3 minutes.`,
     });
     
     dispatch(extendRangeThunk({ 

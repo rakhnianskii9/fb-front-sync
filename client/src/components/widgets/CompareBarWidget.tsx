@@ -326,7 +326,13 @@ export const CompareBarWidget = memo(function CompareBarWidget({
       <div className="space-y-4">
         {/* Chart */}
         <div className="h-[350px]">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            minWidth={100}
+            minHeight={100}
+            initialDimension={{ width: 100, height: 100 }}
+          >
             <BarChart
               data={chartData}
               margin={{ top: 20, right: 30, left: 20, bottom: 60 }}

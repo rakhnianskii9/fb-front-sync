@@ -9,7 +9,7 @@
 
 ## Проблема
 
-1. **CPR (Cost per Result)** — FB возвращает `cost_per_result` по optimization goal кампании, но нам нужен CPR по "логическим группам" конверсий (messages + leads + forms = все типы контактов).
+1. **CPR (Cost per Result)** — FB возвращает `cost_per_result` по optimization goal кампании ("native CPR"), но нам также нужен "computed CPR" по "логическим группам" конверсий (messages + leads + forms = все типы контактов). При этом computed CPR должен быть явно помечен как приближение (может не совпадать с FB-native в зависимости от выбранного result / attribution window / delivery).
 
 2. **Нет возможности сегментировать данные** — карточки и графики показывают агрегат по всем кампаниям/адсетам без возможности отфильтровать по атрибутам (objective, placement, budget type и т.д.).
 
@@ -396,13 +396,109 @@ interface QueryBuilderState {
 
 ---
 
+# ЧАСТЬ 1.5: Meta Backend — Data Layer (согласованный план)
+
+> Цель: обеспечить быстрые фильтры/группировки (Query Builder + Breakdown) и полный “аудит” изменений (для AI/observations) без JOIN’ов.
+
+## Must-have (чтобы план считался закрытым)
+
+1) **Change Logs как отдельный поток**: `ad_account/activities` → отдельная таблица/пайплайн, инкрементальный sync + overlap, dedup, hot/cold.
+2) **Явные SCD2 Snapshots**: дневные снапшоты метаданных со `valid_until` (baseline “точка 0”, далее версии по изменениям).
+3) **Metadata inheritance как слой**: материализация выбранных полей Campaign→AdSet→Ad→Creative как “атрибутный слой” для Query Builder (без JOIN’ов).
+4) **JSONB + индексы**: `jsonb` + GIN (в т.ч. placements path) — это техдолг, но критично для скорости фильтров.
+
+## Scope (ключи данных)
+
+- Основная гранулярность хранения: `workspace + ad_account`.
+- На уровне insights храним parent chain: `campaign_id`, `adset_id`, `ad_id`, `creative_id` (если есть), чтобы избегать JOIN’ов в аналитике.
+
+## JSONB + индексация (Campaign / AdSet / Ad / Creative)
+
+- Переводим/фиксируем типы на `jsonb` и добавляем GIN индексы под фильтры:
+  - Campaign: `special_ad_categories`, `raw_data`.
+  - AdSet: `targeting`, `promoted_object`, `raw_data`.
+  - Ad: `tracking_specs`, `conversion_specs`, `raw_data`.
+  - Creative: `object_story_spec`, `asset_feed_spec`, `raw_data`.
+- Отдельный упор на placements: индексируем путь из `adset.targeting` для быстрых условий `Placements ∋ ...`.
+
+## Metadata Inheritance (материализация)
+
+Материализуем 9 атрибутов на всех уровнях (Campaign → AdSet → Ad → Creative):
+
+- От Campaign:
+  - `objective`
+  - `buying_type`
+  - `bid_strategy`
+  - `special_ad_categories`
+  - `budget_type` (computed):
+    - `CBO`, если у Campaign задан `daily_budget` или `lifetime_budget` (не null/не пусто/не 0)
+    - `ABO`, если у Campaign бюджеты пустые, но у AdSet задан `daily_budget` или `lifetime_budget`
+    - `UNKNOWN`, если бюджеты не заданы ни на Campaign, ни на AdSet (или данные неполные)
+- От AdSet:
+  - `optimization_goal`
+  - `destination_type`
+  - `billing_event`
+  - `publisher_platforms` (из targeting)
+  - `promoted_object`
+
+## Hash + Diff (изменения как “сигнал”)
+
+- Hash: `SHA256` только по **ключевым полям**, исключая шум:
+  - исключаем `updated_time` и любые “плавающие” поля (например, `delivery_estimates`).
+- Diff: храним `JSON diff (old → new)` как первичный артефакт для AI Observations.
+
+## Activity Logs (ad_account/activities)
+
+- Храним **полную историю** бессрочно (Meta историю не гарантирует).
+- “Hot storage” = последние 90 дней (быстрые запросы), “cold storage” = всё остальное.
+  - На старте: одна таблица + правильные индексы; логическое разделение hot/cold на уровне запросов.
+- Синхронизация: каждые 30 минут.
+  - Стратегия: `B + incremental` (overlap до 7 дней + инкрементальный cursor).
+  - Дедуп ключ: `event_time + object_id + event_type → hash`.
+- Важные типы событий (Pareto): create/delete, update_budget, update_status, update_targeting, update_creative, pause/resume.
+
+## Daily Snapshots (метаданные, SCD Type 2)
+
+- Снапшотим: **только активные + изменённые за день**.
+- Частота: 1 раз в день (ночь аккаунта).
+- Поля: только метаданные + статусы (НЕ insights).
+- Retention: 365 дней, старше — агрегировать/схлопывать.
+- Модель: `SCD Type 2` с `valid_until`.
+  - “Точка 0”: первичная загрузка (initial full sync) создаёт baseline-версию.
+  - Далее: при изменении закрываем предыдущую запись `valid_until` и создаём новую версию.
+
+## Learning Stage + Issues (история + алерты)
+
+Learning Stage:
+- Храним минимум: `entered_learning_at`, `exited_learning_at`, `status (LEARNING/SUCCESS/FAIL)`.
+- Храним `last_sig_edit_ts` как ключ причинности.
+- Алерты минимум:
+  - `stuck_in_learning > 7 дней`
+  - `frequent_relearning (≥2 за 14 дней)`
+
+Issues:
+- Классификация простая:
+  - `category: budget / targeting / creative / policy`
+  - `severity: warning / error`
+- Алерты: только `error`.
+- История: `appeared_at`, `resolved_at`, `duration`.
+
+## Attribution Context (минимум на старте)
+
+- Сейчас: только default окно атрибуции `7d_click, 1d_view`.
+- `attribution_spec` (из AdSet) храним отдельно и привязываем reference_id к insights (контекст запроса).
+- Важно: в v1 "Attribution" = агрегаты из Insights (окна/модель/контекст запроса), НЕ "пути" (event-level sequences). Полноценные multi-touch пути не обещаем на базе Facebook API; если понадобятся — это отдельный v2 (CRM/click-id/UTM + собственные события).
+- Пересчёт CPR/ROAS при смене окна: НЕ делаем на этом этапе; храним raw values default-окна.
+
+---
+
 # ЧАСТЬ 2: Dashboard Builder — Рабочие столы
 
 ## Концепция
 
 Dashboard Builder позволяет создавать кастомные рабочие столы. Каждый рабочий стол имеет:
 
-1. **Главный виджет** — центральная визуализация (Full Funnel, Attribution Tree, Comparison Bar)
+1. **Главный виджет** — центральная визуализация (Full Funnel, Attribution Compare (aggregates), Comparison Bar)
 2. **Detail Panel** — всплывает справа при клике на элемент
 3. **Второстепенные виджеты** — 2-4 дополнительных графика
 4. **KPI плитка** — 6-8 карточек с ключевыми метриками
@@ -621,27 +717,43 @@ interface FunnelTargets {
 ---
 
 ## ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## 2️⃣ ATTRIBUTION — Treemap ↔ Tree (Multi-touch пути)
+## 2️⃣ ATTRIBUTION — Aggregates (v1) / Paths (future)
 ## ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**Назначение:** Визуализация путей клиента от первого касания до конверсии  
-**Ключевая идея:** Multi-touch attribution — какие комбинации touchpoints приводят к результату
-**Требуемый scope:** `attribution_read` (Facebook App Review)
+**v1 назначение:** сравнение агрегированных метрик (Results/Spend/ROAS/CPR) между attribution windows / (если доступно) attribution model в рамках одного и того же среза Query Builder.  
+**v1 ключевая идея:** Attribution здесь — это контекст агрегации Insights, а не реконструкция пользовательских последовательностей касаний.
+
+**future (v2):** multi-touch пути ("touch sequences") возможны только если у нас есть собственные user-level события (CRM/click-id/UTM + timestamp) и правила дедупликации/матчинга. `attribution_read` может быть нужен для расширенных полей, но сам по себе не гарантирует доступ к "путям".
 
 ### ECharts компоненты
 
 | Компонент | Ссылка на пример | Применение |
 |-----------|------------------|------------|
-| **Treemap** | [Treemap](https://echarts.apache.org/examples/en/editor.html?c=treemap-drill-down) | Площадь = объём конверсий по пути |
-| **Tree (радиальный)** | [Radial Tree](https://echarts.apache.org/examples/en/editor.html?c=tree-radial) | Ветвление путей от первого touchpoint |
-| **Tree (вертикальный)** | [Tree Vertical](https://echarts.apache.org/examples/en/editor.html?c=tree-vertical) | Последовательность касаний |
-| **Sankey** (альт.) | [Sankey](https://echarts.apache.org/examples/en/editor.html?c=sankey-energy) | Flow между touchpoints |
+| **Bar / Line** | [Line](https://echarts.apache.org/examples/en/editor.html?c=line-simple) | v1: сравнение окон/моделей по одной метрике |
+| **Table** (альт.) | — | v1: компактное сравнение windows → (Results/Spend/ROAS/CPR) |
+| **Treemap** | [Treemap](https://echarts.apache.org/examples/en/editor.html?c=treemap-drill-down) | future (v2): доля/объём по pattern |
+| **Tree / Sankey** | [Sankey](https://echarts.apache.org/examples/en/editor.html?c=sankey-energy) | future (v2): визуализация sequences |
 
-### Главный виджет: Treemap ↔ Tree Toggle
+### Главный виджет: v1 (Aggregates Compare)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  ATTRIBUTION PATHS — Пути клиентов до конверсии                             │
+│  ATTRIBUTION — Window/Model Compare (Aggregates)                             │
+│                                                                              │
+│  [Attribution Window: ▾ 7d_click,1d_view]  [Metric: ▾ Results/CPR/ROAS]      │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  Bar/Line/Table: сравнение выбранных окон/моделей по метрике             ││
+│  │  Note: CPR = native (если есть) + computed (approx)                      ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Главный виджет: future (v2) Treemap ↔ Tree Toggle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  FUTURE: ATTRIBUTION PATHS — Пути клиентов до конверсии                     │
 │                                                                              │
 │  [🗂️ Treemap] [🌳 Tree]                       [Group by: ▾ Campaign]        │
 │                                                                              │
@@ -688,11 +800,12 @@ interface FunnelTargets {
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Attribution Data Model (Facebook API)
+### Attribution Data Model (future v2, CRM-derived)
 
 ```typescript
-// Требует scope: attribution_read
-interface AttributionPath {
+// Важно: это НЕ модель данных из Facebook API.
+// Если делаем multi-touch пути, то это будет наша модель на основе user-level событий (CRM/click-id/UTM) + правил матчинга.
+interface AttributionPathV2 {
   pathId: string;
   touchpoints: Array<{
     timestamp: string;
@@ -796,7 +909,7 @@ interface PathAggregation {
 │                                                                                             │
 │  ┌─────────────────────────────────────────────────────────┬───────────────────────────┐   │
 │  │                                                         │                           │   │
-│  │  🌳 ATTRIBUTION PATHS                                   │  📋 DETAIL PANEL          │   │
+│  │  🌳 FUTURE: ATTRIBUTION PATHS                            │  📋 DETAIL PANEL          │   │
 │  │                                                         │     (при клике на путь)   │   │
 │  │  [🗂️ Treemap ←ACTIVE] [🌳 Tree]  [Group by: ▾ Campaign]│                           │   │
 │  │                                                         │  ┌─────────────────────┐  │   │
@@ -1246,11 +1359,12 @@ interface VideoRetentionMetrics {
 | Тип | ID | ECharts | Данные | Статус |
 |-----|-----|---------|--------|--------|
 | Full Funnel | `funnel-full` | [Funnel](https://echarts.apache.org/examples/en/editor.html?c=funnel) + [Gauge](https://echarts.apache.org/examples/en/editor.html?c=gauge-grade) | Воронка FB→CRM + plan/fact | 🔄 Есть div-версия → ECharts |
-| Attribution Treemap | `attribution-treemap` | [Treemap](https://echarts.apache.org/examples/en/editor.html?c=treemap-drill-down) | Пути атрибуции по площади | 🔜 ECharts |
-| Attribution Tree | `attribution-tree` | [Radial Tree](https://echarts.apache.org/examples/en/editor.html?c=tree-radial) | Пути атрибуции (ветвление) | 🔜 ECharts |
+| Attribution Compare (Aggregates) | `attribution-compare` | [Line](https://echarts.apache.org/examples/en/editor.html?c=line-simple) + [Bar](https://echarts.apache.org/examples/en/editor.html?c=bar-simple) | v1: сравнение attribution windows/models (aggregates) | 🔜 ECharts |
+| Attribution Treemap (future) | `attribution-treemap` | [Treemap](https://echarts.apache.org/examples/en/editor.html?c=treemap-drill-down) | future (v2): patterns/sequences (не из Facebook API напрямую) | 🔜 ECharts |
+| Attribution Tree (future) | `attribution-tree` | [Radial Tree](https://echarts.apache.org/examples/en/editor.html?c=tree-radial) | future (v2): sequences/ветвление (не из Facebook API напрямую) | 🔜 ECharts |
 | Comparison Bar | `comparison` | [⭐ Bar Stack Normalization](https://echarts.apache.org/examples/en/editor.html?c=bar-stack-normalization-and-variation) | N entities × M metrics | ✅ BarChart (Recharts) |
 | Video Retention | `video-retention` | [Funnel Align](https://echarts.apache.org/examples/en/editor.html?c=funnel-align) | Сравнение видео по глубине просмотра | 🔜 ECharts (новый) |
-| Sankey | `sankey` | [Sankey](https://echarts.apache.org/examples/en/editor.html?c=sankey-energy) | Flow между touchpoints | 🔜 ECharts |
+| Sankey (future) | `sankey` | [Sankey](https://echarts.apache.org/examples/en/editor.html?c=sankey-energy) | future (v2): flow между touchpoints/sequences | 🔜 ECharts |
 
 ### Второстепенные виджеты (2-4 на рабочий стол)
 

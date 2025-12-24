@@ -61,8 +61,16 @@ export function DateRangePresets({
       {presets.map((preset) => {
         // Check if this preset requires data extension
         const needsExtend = loadedDays !== undefined && preset.days > loadedDays;
-        const isDisabled = isSyncing && needsExtend;
-        const shouldSpin = Boolean(isSyncing && needsExtend && syncingPresetDays === preset.days);
+        // While syncing, allow user to request a *larger* range (e.g. 90 -> 180 -> 360).
+        // Only block presets that would not increase the current in-flight target.
+        const isDisabled = Boolean(
+          isSyncing &&
+            needsExtend &&
+            syncingPresetDays !== null &&
+            preset.days <= syncingPresetDays
+        );
+        // Spin based on the selected in-flight target; report status can update with delay.
+        const shouldSpin = Boolean(needsExtend && syncingPresetDays === preset.days);
         
         return (
           <Button

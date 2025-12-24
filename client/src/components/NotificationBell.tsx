@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import logger from "@/lib/logger";
-import { Bell, Check, CheckCheck, Trash2, RefreshCcw, AlertCircle, Clock, X } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns/formatDistanceToNow';
+import { Bell, Check, CheckCheck, Trash2, RefreshCcw, AlertCircle, Clock, X, Rocket, Pause, Play, FileCheck } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -29,6 +29,16 @@ const NotificationIcon: React.FC<{ type: Notification['type'] }> = ({ type }) =>
       return <Check className="h-4 w-4 text-green-500" />;
     case 'sync_failed':
       return <AlertCircle className="h-4 w-4 text-red-500" />;
+    case 'initial_sync_started':
+      return <Rocket className="h-4 w-4 text-blue-500" />;
+    case 'initial_sync_paused':
+      return <Pause className="h-4 w-4 text-yellow-500" />;
+    case 'report_ready':
+      return <FileCheck className="h-4 w-4 text-green-500" />;
+    case 'initial_sync_resumed':
+      return <Play className="h-4 w-4 text-blue-500" />;
+    case 'incremental_sync':
+      return <RefreshCcw className="h-4 w-4 text-blue-500" />;
     case 'deadline_approaching':
       return <Clock className="h-4 w-4 text-yellow-500" />;
     case 'deadline_overdue':
@@ -248,6 +258,12 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ workspaceId,
                         <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0" />
                       )}
                     </div>
+                    {/* Показываем имя воркспейса для глобальных уведомлений */}
+                    {notification.isGlobal && notification.sourceWorkspaceName && (
+                      <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                        {notification.sourceWorkspaceName}
+                      </span>
+                    )}
                     <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                       {notification.message}
                     </p>

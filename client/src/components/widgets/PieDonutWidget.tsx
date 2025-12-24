@@ -195,7 +195,13 @@ export const PieDonutWidget = memo(function PieDonutWidget({
       }
     >
       <div className="h-[250px]">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={100}
+          minHeight={100}
+          initialDimension={{ width: 100, height: 100 }}
+        >
           <PieChart>
             <Pie
               data={chartData}

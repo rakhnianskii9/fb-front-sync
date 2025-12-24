@@ -282,7 +282,13 @@ export const ScatterBubbleWidget = memo(function ScatterBubbleWidget({
         
         {/* Chart */}
         <div className="h-[280px]">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            minWidth={100}
+            minHeight={100}
+            initialDimension={{ width: 100, height: 100 }}
+          >
             <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
               <XAxis 

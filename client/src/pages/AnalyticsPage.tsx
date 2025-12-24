@@ -8,7 +8,7 @@ import { ArrowLeft, BarChart3, Megaphone, Layers, FileText, Image, ChevronDown, 
 import { DateRange } from "react-day-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns/format";
+import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import DashboardMetricCardsSection from "@/components/DashboardMetricCardsSection";
 import DashboardChartGrid from "@/components/DashboardChartGrid";
@@ -66,7 +66,6 @@ import type { TabType, BreakdownType } from "@/store/slices/reportsSlice";
 import { isDerivedMetric, calculateDerivedMetric, isSummableMetric, getMetricDependencies } from '@/lib/metricFormulas';
 import { sanitizeMetricValue } from "@/lib/metricSanitizer";
 import fbAdsApi from "@/api/fbAds";
-import { parseISO } from "date-fns/parseISO";
 import {
   selectCurrentProjectId,
   selectCurrentProject,
@@ -1471,8 +1470,8 @@ export default function AnalyticsPage() {
     
     logger.log('[AnalyticsPage] Extending data range:', { loadedDays, targetDays });
     toast({
-      title: "Расширение данных",
-      description: `Загружаем данные за ${targetDays} дней... Это может занять 1-3 минуты.`,
+      title: 'Extending data range',
+      description: `Loading data for ${targetDays} days... This may take 1–3 minutes.`,
     });
     
     dispatch(extendRangeThunk({ 
