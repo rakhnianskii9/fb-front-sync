@@ -237,7 +237,7 @@ const capiEventsSlice = createSlice({
                 state.total = 0
                 state.timeRange = null
                 state.error =
-                    action.payload || action.error.message || 'Не удалось загрузить CAPI события'
+                    action.payload || action.error.message || 'Failed to load CAPI events'
             })
             .addCase(fetchCapiEventDetail.pending, (state) => {
                 state.detail.loading = true
@@ -251,7 +251,7 @@ const capiEventsSlice = createSlice({
             .addCase(fetchCapiEventDetail.rejected, (state, action) => {
                 state.detail.loading = false
                 state.detail.error =
-                    action.payload || action.error.message || 'Не удалось получить детали события'
+                    action.payload || action.error.message || 'Failed to get event details'
             })
     }
 })

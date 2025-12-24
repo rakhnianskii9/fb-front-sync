@@ -62,6 +62,7 @@ export default function ProjectsPage() {
   const loading = useAppSelector(state => state.projects.loading);
   const error = useAppSelector(state => state.projects.error);
   const currentProjectId = useAppSelector(state => state.projects.currentProjectId);
+  const activeWorkspaceId = useAppSelector(state => state.user.currentUser?.activeWorkspaceId);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [tagsDialogOpen, setTagsDialogOpen] = useState(false);
@@ -92,10 +93,12 @@ export default function ProjectsPage() {
   // Селектор для отчётов каждого проекта
   const allReports = useAppSelector(state => state.reports.reports);
 
-  // Загрузить проекты при монтировании
+  // Загрузить проекты при монтировании или смене workspace
   useEffect(() => {
-    dispatch(fetchProjects());
-  }, [dispatch]);
+    if (activeWorkspaceId) {
+      dispatch(fetchProjects());
+    }
+  }, [dispatch, activeWorkspaceId]);
 
   // Показать ошибки через toast
   useEffect(() => {
@@ -396,13 +399,18 @@ export default function ProjectsPage() {
     navigate('/selection');
   };
 
+  // Фильтрация проектов по текущему workspace (защита от показа проектов из другого workspace)
+  const workspaceProjects = activeWorkspaceId 
+    ? projects.filter(p => p.workspaceId === activeWorkspaceId)
+    : projects;
+
   // Фильтрация проектов в диалоге
-  const filteredProjectsForDialog = projects.filter(project =>
+  const filteredProjectsForDialog = workspaceProjects.filter(project =>
     project.name.toLowerCase().includes(projectSearchQuery.toLowerCase())
   );
 
 
-  const filteredProjects = projects.filter(project => 
+  const filteredProjects = workspaceProjects.filter(project => 
     project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     project.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -526,6 +534,9 @@ export default function ProjectsPage() {
                               minute: '2-digit',
                               hour12: false
                             })}
+                            <span className="ml-2 text-muted-foreground/60 font-mono text-[10px]" title={`Project ID: ${project.id}`}>
+                              #{project.code || project.id.slice(0, 8)}
+                            </span>
                           </p>
                         </div>
                       </div>
@@ -675,6 +686,9 @@ export default function ProjectsPage() {
                                         })
                                       : 'Recently'
                                     }
+                                    <span className="ml-2 text-muted-foreground/60 font-mono text-[10px]" title={`Report ID: ${report.id}`}>
+                                      #{report.code || report.id.slice(0, 8)}
+                                    </span>
                                   </p>
 
                                   {Array.isArray(report.tags) && report.tags.length > 0 && (

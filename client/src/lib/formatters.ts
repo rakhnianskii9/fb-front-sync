@@ -90,3 +90,42 @@ export function formatMetricValue(value: number, metricId: string, currencyCode?
   // Format regular numbers
   return numericValue.toLocaleString('en-US');
 }
+
+// ============================================
+// Простые функции для виджетов (без metricId)
+// ============================================
+
+/**
+ * Форматирует число с разделителями тысяч
+ * @example formatNumber(1234567) → "1,234,567"
+ */
+export function formatNumber(value: number): string {
+  return value.toLocaleString('en-US');
+}
+
+/**
+ * Форматирует валюту с символом
+ * @example formatCurrency(1234.5, 'USD') → "$1,234.50"
+ */
+export function formatCurrency(value: number, currencyCode?: string | null): string {
+  const symbol = getCurrencySymbol(currencyCode);
+  return `${symbol}${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Форматирует процент
+ * @example formatPercent(12.345) → "12.35%"
+ */
+export function formatPercent(value: number, decimals = 2): string {
+  return `${value.toFixed(decimals)}%`;
+}
+
+/**
+ * Компактное форматирование больших чисел
+ * @example formatCompact(1234567) → "1.2M"
+ */
+export function formatCompact(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return value.toLocaleString('en-US');
+}

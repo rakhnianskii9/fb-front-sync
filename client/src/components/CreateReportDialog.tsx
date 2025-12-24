@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import {
   Dialog,
@@ -43,6 +43,13 @@ export function CreateReportDialog({
   defaultName = 'New Report',
 }: CreateReportDialogProps) {
   const [reportName, setReportName] = useState(defaultName);
+
+  // Sync reportName with defaultName when it changes (e.g., when selections update)
+  useEffect(() => {
+    if (open) {
+      setReportName(defaultName);
+    }
+  }, [defaultName, open]);
 
   // Reset name when dialog opens
   const handleOpenChange = (newOpen: boolean) => {

@@ -9,7 +9,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { format, parseISO } from 'date-fns';
+import { format, parse, parseISO } from 'date-fns';
 import fbAdsApi from '@/api/fbAds';
 import { isSummableMetric } from '@/lib/metricFormulas';
 import { sanitizeMetricValue } from '@/lib/metricSanitizer';
@@ -127,8 +127,9 @@ export interface TabData {
 
 export interface CacheSignature {
   reportId: string;
-  dateFrom: string;
-  dateTo: string;
+  /** Load dates (full dataRange) - signature only tracks these, not display dates */
+  loadDateFrom: string;
+  loadDateTo: string;
   attribution: string;
   accountIds: string[];
   selectionsByTab: Record<TabType, string[]>;
@@ -154,8 +155,14 @@ export interface ReportCache {
 interface UseReportCacheParams {
   workspaceId: string | undefined;
   reportId: string | undefined;
-  dateFrom: string;
-  dateTo: string;
+  /** Full data range start date (from report.dataRange or fallback) - used for loading */
+  loadDateFrom: string;
+  /** Full data range end date (from report.dataRange or fallback) - used for loading */
+  loadDateTo: string;
+  /** Display date range start - used for filtering (user's selected period) */
+  displayDateFrom: string;
+  /** Display date range end - used for filtering */
+  displayDateTo: string;
   periodBFrom?: string;
   periodBTo?: string;
   compareEnabled: boolean;
@@ -176,12 +183,12 @@ interface UseReportCacheResult {
   error: string | null;
 }
 
-// Генерация signature для сравнения
+// Генерация signature для сравнения (использует loadDate, не display)
 function createSignature(params: UseReportCacheParams): CacheSignature {
   return {
     reportId: params.reportId || '',
-    dateFrom: params.dateFrom,
-    dateTo: params.dateTo,
+    loadDateFrom: params.loadDateFrom,
+    loadDateTo: params.loadDateTo,
     attribution: params.attribution,
     accountIds: [...params.accountIds].sort(),
     selectionsByTab: {
@@ -202,8 +209,10 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
   const {
     workspaceId,
     reportId,
-    dateFrom,
-    dateTo,
+    loadDateFrom,
+    loadDateTo,
+    displayDateFrom,
+    displayDateTo,
     periodBFrom,
     periodBTo,
     compareEnabled,
@@ -241,11 +250,12 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
     (selectionsByTab.creatives || []).slice().sort().join(','),
   ].join('||');
 
-  // Текущая signature — создаём вручную для стабильности
+  // Текущая signature — использует LOAD даты (не display)
+  // Изменение display дат НЕ инвалидирует кэш
   const currentSignature = useMemo((): CacheSignature => ({
     reportId: reportId || '',
-    dateFrom,
-    dateTo,
+    loadDateFrom,
+    loadDateTo,
     attribution,
     accountIds: accountIds.slice().sort(),
     selectionsByTab: {
@@ -255,7 +265,7 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
       creatives: (selectionsByTab.creatives || []).slice().sort(),
     },
   }), [
-    reportId, dateFrom, dateTo, attribution,
+    reportId, loadDateFrom, loadDateTo, attribution,
     accountIdsKey,
     selectionsKey,
   ]);
@@ -769,9 +779,9 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
     try {
       const tabs: TabType[] = ['campaigns', 'adsets', 'ads', 'creatives'];
       
-      // Загружаем все табы параллельно
+      // Загружаем все табы параллельно с LOAD датами (полный dataRange)
       const results = await Promise.all(
-        tabs.map(tab => loadTabData(tab, dateFrom, dateTo, attribution))
+        tabs.map(tab => loadTabData(tab, loadDateFrom, loadDateTo, attribution))
       );
 
       const newTabs: ReportCache['tabs'] = {
@@ -788,6 +798,8 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
       }));
 
       logger.log('[useReportCache] All tabs loaded:', {
+        loadDateFrom,
+        loadDateTo,
         campaigns: results[0]?.availableMetricKeys.length || 0,
         adsets: results[1]?.availableMetricKeys.length || 0,
         ads: results[2]?.availableMetricKeys.length || 0,
@@ -801,7 +813,7 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
       setIsLoading(false);
       setLoadingTabs(new Set());
     }
-  }, [workspaceId, reportId, dateFrom, dateTo, attribution, loadTabData]);
+  }, [workspaceId, reportId, loadDateFrom, loadDateTo, attribution, loadTabData]);
 
   /**
    * Prefetch Period B данных в background
@@ -926,14 +938,62 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
   }, [compareEnabled, periodBFrom, periodBTo, isLoading, prefetchPeriodB]);
 
   /**
-   * Получение данных таба из кэша
+   * Фильтрация metricsData по display датам
+   * Ключевая функция для варианта A — мгновенное переключение периодов
+   */
+  const filterMetricsByDisplayDate = useCallback((
+    data: TabData | null
+  ): TabData | null => {
+    if (!data) return null;
+    
+    // Фильтруем metricsData — оставляем только даты в диапазоне displayDateFrom..displayDateTo
+    const filteredMetricsData: MetricsData = {};
+    const displayStart = parseISO(displayDateFrom);
+    const displayEnd = parseISO(displayDateTo);
+    displayStart.setHours(0, 0, 0, 0);
+    displayEnd.setHours(23, 59, 59, 999);
+    
+    Object.entries(data.metricsData).forEach(([dateKey, itemsData]) => {
+      // dateKey is stored as 'dd.MM.yyyy' in cache/tableRows
+      const date = parse(dateKey, 'dd.MM.yyyy', new Date());
+      if (date >= displayStart && date <= displayEnd) {
+        filteredMetricsData[dateKey] = itemsData;
+      }
+    });
+    
+    // Фильтруем tableRows по датам
+    const filteredTableRows = data.tableRows.filter(row => {
+      const date = parse(row.date, 'dd.MM.yyyy', new Date());
+      return date >= displayStart && date <= displayEnd;
+    });
+    
+    return {
+      ...data,
+      metricsData: filteredMetricsData,
+      tableRows: filteredTableRows,
+    };
+  }, [displayDateFrom, displayDateTo]);
+
+  /**
+   * Получение данных таба из кэша с фильтрацией по display датам
    */
   const getTabData = useCallback((tab: TabType, usePeriodB = false): TabData | null => {
+    let data: TabData | null = null;
+    
     if (usePeriodB && cache.periodB) {
-      return cache.periodB[tab];
+      data = cache.periodB[tab];
+    } else {
+      data = cache.tabs[tab];
     }
-    return cache.tabs[tab];
-  }, [cache]);
+    
+    // Фильтруем по display датам (Period A)
+    // Period B НЕ фильтруем — у него свои даты (periodBFrom/periodBTo)
+    if (!usePeriodB) {
+      return filterMetricsByDisplayDate(data);
+    }
+    
+    return data;
+  }, [cache, filterMetricsByDisplayDate]);
 
   /**
    * Принудительное обновление кэша

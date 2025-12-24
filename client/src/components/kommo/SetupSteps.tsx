@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 interface SetupStepsProps {
   currentStep: number;
   steps: { title: string; description: string }[];
+  onStepClick?: (stepIndex: number) => void;
 }
 
 /**
@@ -11,7 +12,7 @@ interface SetupStepsProps {
  * Отображает прогресс настройки Kommo интеграции с вертикальной линией соединения
  * Макет по Zkommo1.html
  */
-export function SetupSteps({ currentStep, steps }: SetupStepsProps) {
+export function SetupSteps({ currentStep, steps, onStepClick }: SetupStepsProps) {
   return (
     <div className="rounded-xl border border-border bg-card p-6">
       <h3 className="text-body-sm font-bold text-muted-foreground uppercase tracking-wider mb-6">
@@ -22,9 +23,26 @@ export function SetupSteps({ currentStep, steps }: SetupStepsProps) {
           const isActive = index === currentStep;
           const isCompleted = index < currentStep;
           const isLast = index === steps.length - 1;
+          const isClickable = typeof onStepClick === 'function';
+
+          const Container: any = isClickable ? 'button' : 'div';
+          const containerProps = isClickable
+            ? {
+                type: 'button',
+                onClick: () => onStepClick(index),
+              }
+            : {};
 
           return (
-            <div key={index} className={cn("relative flex gap-4 z-10", !isLast && "pb-8")}>
+            <Container
+              key={index}
+              {...containerProps}
+              className={cn(
+                "relative flex gap-4 z-10 text-left",
+                !isLast && "pb-8",
+                isClickable && "w-full cursor-pointer"
+              )}
+            >
               {/* Вертикальная линия соединитель */}
               {!isLast && (
                 <div 
@@ -69,7 +87,7 @@ export function SetupSteps({ currentStep, steps }: SetupStepsProps) {
                   {step.description}
                 </p>
               </div>
-            </div>
+            </Container>
           );
         })}
       </div>

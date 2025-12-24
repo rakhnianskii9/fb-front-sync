@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { Button } from "@/components/ui/button";
@@ -61,7 +61,7 @@ import { formatMetricValue, normalizeStatus, isActiveStatus } from "@/lib/format
 import { METRIC_SKIP_FIELDS } from "@/lib/constants";
 import logger from "@/lib/logger";
 import { updateBreakdowns } from "@/store/slices/reportsSlice";
-import { fetchReportsByProject, updateReportThunk, getSyncStatusThunk } from "@/store/slices/reportsThunks";
+import { fetchReportsByProject, updateReportThunk, getSyncStatusThunk, extendRangeThunk } from "@/store/slices/reportsThunks";
 import type { TabType, BreakdownType } from "@/store/slices/reportsSlice";
 import { isDerivedMetric, calculateDerivedMetric, isSummableMetric, getMetricDependencies } from '@/lib/metricFormulas';
 import { sanitizeMetricValue } from "@/lib/metricSanitizer";
@@ -950,12 +950,21 @@ export default function AnalyticsPage() {
   const previousSyncStatusRef = useRef<string | null>(null);
   const autoTabFixSignatureRef = useRef<string | null>(null);
 
+  // IMPORTANT: analytics data must be loaded based on the report's selected accounts.
+  // The global `accounts` slice can be empty/stale (e.g. after workspace switch resets),
+  // which would otherwise prevent cache loading and show "no statistics".
   const stableAccountIds = useMemo(() => {
+    const reportAccountIds = currentReport?.selections?.accounts ?? [];
+    if (reportAccountIds.length > 0) {
+      return [...reportAccountIds].sort((a, b) => a.localeCompare(b));
+    }
+
     if (!accounts || accounts.length === 0) {
       return [] as string[];
     }
+
     return [...accounts.map((account) => account.id)].sort((a, b) => a.localeCompare(b));
-  }, [accounts]);
+  }, [accounts, currentReport?.selections?.accounts]);
 
   // Получаем валюту аккаунта (если все аккаунты с одной валютой — используем её, иначе USD)
   const accountCurrency = useMemo(() => {
@@ -975,47 +984,85 @@ export default function AnalyticsPage() {
   }, [currentReport?.selections]);
 
   // Переменные состояния, используемые в analyticsFetchParams
-  const [attribution, setAttribution] = useState<string>("7d_click_1d_view");
+  // Инициализируем из report или дефолтное значение
+  const [attribution, setAttribution] = useState<string>(
+    currentReport?.attribution || "7d_click_1d_view"
+  );
   const [availableAttributions, setAvailableAttributions] = useState<Array<{
     value: string;
     label: string;
     count: number;
   }>>([]);
-  const [isLoadingAttributions, setIsLoadingAttributions] = useState(false);
   
-  // Логирование изменения attribution
+  // Ref для отслеживания пользовательского изменения vs синхронизации из Redux
+  const attributionUserChangeRef = useRef(false);
+  
+  // Синхронизация attribution из report при смене отчёта (НЕ при каждом обновлении)
+  const lastSyncedReportIdForAttributionRef = useRef<string | null>(null);
   useEffect(() => {
-    logger.log('[AnalyticsPage] Attribution changed to:', attribution);
-  }, [attribution]);
+    // Только при смене отчёта синхронизируем attribution из Redux
+    if (currentReport?.id && currentReport.id !== lastSyncedReportIdForAttributionRef.current) {
+      lastSyncedReportIdForAttributionRef.current = currentReport.id;
+      if (currentReport.attribution && currentReport.attribution !== attribution) {
+        setAttribution(currentReport.attribution);
+      }
+    }
+  }, [currentReport?.id, currentReport?.attribution]);
   
-  // TODO: Загрузка доступных атрибуций при смене аккаунтов
-  // API метод getAttributionSettings ещё не реализован на бэкенде
-  // useEffect(() => {
-  //   const loadAttributionSettings = async () => {
-  //     if (!stableAccountIds || stableAccountIds.length === 0) return;
-  //     
-  //     setIsLoadingAttributions(true);
-  //     try {
-  //       const response = await fbAdsApi.marketing.getAttributionSettings(stableAccountIds[0]);
-  //       if (response.success && response.attributionSettings.length > 0) {
-  //         setAvailableAttributions(response.attributionSettings);
-  //         const currentAvailable = response.attributionSettings.find((a: any) => a.value === attribution);
-  //         if (!currentAvailable) {
-  //           setAttribution(response.attributionSettings[0].value);
-  //         }
-  //       }
-  //     } catch (error) {
-  //       logger.error('[AnalyticsPage] Failed to load attribution settings:', error);
-  //     } finally {
-  //       setIsLoadingAttributions(false);
-  //     }
-  //   };
-  //   
-  //   loadAttributionSettings();
-  // }, [stableAccountIds]);
+  // Сохранение attribution в report при ПОЛЬЗОВАТЕЛЬСКОМ изменении
+  const handleAttributionChange = useCallback((newValue: string) => {
+    if (newValue !== attribution) {
+      setAttribution(newValue);
+      // Сохраняем в report через debounced update
+      if (currentReport && newValue !== currentReport.attribution) {
+        queueUpdate({ attribution: newValue });
+      }
+    }
+  }, [attribution, currentReport, queueUpdate]);
   
-  // Функция для получения дефолтного периода (последние 30 дней) - Report-First Sync Architecture
+  // Загрузка доступных атрибуций при смене аккаунтов
+  // Кэшируем по accountId чтобы не перезагружать
+  const lastLoadedAttributionAccountRef = useRef<string | null>(null);
+  const isLoadingAttributionsRef = useRef(false);
+  
+  useEffect(() => {
+    const loadAttributionSettings = async () => {
+      if (!stableAccountIds || stableAccountIds.length === 0) return;
+      
+      const accountId = stableAccountIds[0];
+      
+      // Не загружаем повторно если уже загружено для этого аккаунта или идёт загрузка
+      if (lastLoadedAttributionAccountRef.current === accountId || isLoadingAttributionsRef.current) {
+        return;
+      }
+      
+      isLoadingAttributionsRef.current = true;
+      // НЕ показываем Loading в UI - просто тихо загружаем в фоне
+      
+      try {
+        const response = await fbAdsApi.marketing.getAttributionSettings(accountId);
+        if (response.success && response.attributionSettings.length > 0) {
+          lastLoadedAttributionAccountRef.current = accountId;
+          setAvailableAttributions(response.attributionSettings);
+          const currentAvailable = response.attributionSettings.find((a) => a.value === attribution);
+          if (!currentAvailable) {
+            setAttribution(response.attributionSettings[0].value);
+          }
+        }
+      } catch (error) {
+        logger.error('[AnalyticsPage] Failed to load attribution settings:', error);
+      } finally {
+        isLoadingAttributionsRef.current = false;
+      }
+    };
+    
+    loadAttributionSettings();
+  }, [stableAccountIds]);
+  
+  // Функция для получения дефолтного периода - Report-First Sync Architecture
+  // Приоритет: dataRange.startDate/endDate (from sync) > dateFrom/dateTo (user override) > fallback 30 days
   const getDefaultPeriod = (): DateRange => {
+    // Fallback: последние 30 дней от сегодня
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const monthAgo = new Date();
@@ -1032,11 +1079,22 @@ export default function AnalyticsPage() {
   const lastSyncedReportIdRef = useRef<string | null>(null);
   
   // Синхронизация periodA с данными из report ТОЛЬКО при загрузке/смене отчёта
+  // Приоритет: dataRange (from sync) > dateFrom/dateTo (user override)
   // ФИКС: Игнорируем Redux если есть pending локальное изменение
   useEffect(() => {
-    if (currentReport?.dateFrom && currentReport?.dateTo) {
-      const from = new Date(currentReport.dateFrom);
-      const to = new Date(currentReport.dateTo);
+    // Определяем источник дат: dataRange (from report-first sync) или dateFrom/dateTo (user saved)
+    const dataRangeStart = currentReport?.dataRange?.startDate;
+    const dataRangeEnd = currentReport?.dataRange?.endDate;
+    const userDateFrom = currentReport?.dateFrom;
+    const userDateTo = currentReport?.dateTo;
+    
+    // Приоритет: dataRange > dateFrom/dateTo (dataRange — это якорённый диапазон от lastActiveDate)
+    const effectiveFrom = dataRangeStart || userDateFrom;
+    const effectiveTo = dataRangeEnd || userDateTo;
+    
+    if (effectiveFrom && effectiveTo) {
+      const from = new Date(effectiveFrom);
+      const to = new Date(effectiveTo);
       from.setHours(0, 0, 0, 0);
       to.setHours(0, 0, 0, 0);
       
@@ -1086,7 +1144,7 @@ export default function AnalyticsPage() {
         return { from, to };
       });
     }
-  }, [currentReport?.id, currentReport?.dateFrom, currentReport?.dateTo]);
+  }, [currentReport?.id, currentReport?.dateFrom, currentReport?.dateTo, currentReport?.dataRange?.startDate, currentReport?.dataRange?.endDate]);
 
   // analyticsFetchParams удалён — теперь используется useReportCache
 
@@ -1108,13 +1166,15 @@ export default function AnalyticsPage() {
     
     // Проверяем статус каждые 10 секунд пока идёт первичная синхронизация
     const interval = setInterval(() => {
-      if (isInitialSyncInProgress) {
+      const status = syncStatusCurrent?.status;
+      // Poll only while sync job is actually active
+      if (status === 'queued' || status === 'running') {
         dispatch(fetchSyncStatus());
       }
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [dispatch, isInitialSyncInProgress]);
+  }, [dispatch, syncStatusCurrent?.status]);
 
   // Polling статуса Report-First Sync: перемещён ниже после объявления useReportCache
   const isReportSyncing = currentReport?.status === 'syncing' || currentReport?.status === 'extending';
@@ -1167,20 +1227,8 @@ export default function AnalyticsPage() {
   const [checkedDates, setCheckedDates] = useState<Set<string>>(new Set());
   // Thumbnail zoom state
   const [zoomedThumbnail, setZoomedThumbnail] = useState<{ url: string; name: string } | null>(null);
-  const [periodB, setPeriodB] = useState<DateRange | undefined>(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const weekAgo = new Date();
-    weekAgo.setDate(today.getDate() - 6);
-    weekAgo.setHours(0, 0, 0, 0);
-    // Previous period: subtract 7 days
-    const bStart = new Date(weekAgo);
-    bStart.setDate(bStart.getDate() - 7);
-    const bEnd = new Date(today);
-    bEnd.setDate(bEnd.getDate() - 7);
-    return { from: bStart, to: bEnd };
-  });
-  const [compareEnabled, setCompareEnabled] = useState(true);
+  const [periodB, setPeriodB] = useState<DateRange | undefined>(undefined);
+  const [compareEnabled, setCompareEnabled] = useState(false);
   const [showColor, setShowColor] = useState(false);
   const [alignment, setAlignment] = useState("previous");
 
@@ -1269,7 +1317,37 @@ export default function AnalyticsPage() {
     return map;
   }, [accounts]);
 
+  // Вычисляем даты загрузки (loadDate) из dataRange отчёта
+  // loadDate = полный диапазон загруженных данных
+  // displayDate = текущий выбранный пользователем период (periodA)
+  const loadDates = useMemo(() => {
+    const dataRange = currentReport?.dataRange;
+    
+    // Если есть dataRange от Report-First Sync — используем его
+    if (dataRange?.startDate && dataRange?.endDate) {
+      logger.log('[AnalyticsPage] Using dataRange for load dates:', {
+        startDate: dataRange.startDate,
+        endDate: dataRange.endDate,
+        loadedDays: dataRange.loadedDays,
+      });
+      return {
+        loadDateFrom: dataRange.startDate,
+        loadDateTo: dataRange.endDate,
+      };
+    }
+    
+    // Fallback: используем periodA (старое поведение — до Report-First Sync)
+    const fallback = {
+      loadDateFrom: format(periodA?.from ?? new Date(), 'yyyy-MM-dd'),
+      loadDateTo: format(periodA?.to ?? periodA?.from ?? new Date(), 'yyyy-MM-dd'),
+    };
+    logger.log('[AnalyticsPage] No dataRange, using periodA as fallback:', fallback);
+    return fallback;
+  }, [currentReport?.dataRange, periodA]);
+
   // Хук кэширования — загружает все табы параллельно + prefetch Period B
+  // ВАЖНО: loadDate = полный dataRange, displayDate = текущий период
+  // Смена периода НЕ перезагружает данные — только фильтрует!
   const {
     cache: reportCache,
     isLoading: isCacheLoading,
@@ -1281,8 +1359,10 @@ export default function AnalyticsPage() {
   } = useReportCache({
     workspaceId: currentProject?.workspaceId,
     reportId: currentReport?.id,
-    dateFrom: format(periodA?.from ?? new Date(), 'yyyy-MM-dd'),
-    dateTo: format(periodA?.to ?? periodA?.from ?? new Date(), 'yyyy-MM-dd'),
+    loadDateFrom: loadDates.loadDateFrom,
+    loadDateTo: loadDates.loadDateTo,
+    displayDateFrom: format(periodA?.from ?? new Date(), 'yyyy-MM-dd'),
+    displayDateTo: format(periodA?.to ?? periodA?.from ?? new Date(), 'yyyy-MM-dd'),
     periodBFrom: periodB?.from ? format(periodB.from, 'yyyy-MM-dd') : undefined,
     periodBTo: periodB?.to ? format(periodB.to, 'yyyy-MM-dd') : undefined,
     compareEnabled,
@@ -1353,19 +1433,16 @@ export default function AnalyticsPage() {
     const currentStatus = syncStatusCurrent?.status;
     const prevStatus = previousSyncStatusRef.current;
     
-    // Если статус изменился с running на succeeded — синхронизация завершена
-    if (prevStatus === 'running' && currentStatus === 'succeeded') {
+    // Если статус изменился на succeeded — синхронизация завершена
+    // Иногда job может перейти queued -> succeeded слишком быстро, минуя running
+    if (currentStatus === 'succeeded' && prevStatus !== 'succeeded') {
       logger.log('[AnalyticsPage] Sync completed! Refreshing data...');
       // Обновляем кэш через refreshCache
       refreshCache();
-      // Если была первичная синхронизация — снимаем флаг
-      if (isInitialSyncInProgress) {
-        setIsInitialSyncInProgress(false);
-      }
     }
     
     previousSyncStatusRef.current = currentStatus ?? null;
-  }, [syncStatusCurrent?.status, isInitialSyncInProgress, refreshCache]);
+  }, [syncStatusCurrent?.status, refreshCache]);
 
   // Сбрасываем parentDisplay если выбранная опция недоступна для текущего таба
   useEffect(() => {
@@ -1384,6 +1461,26 @@ export default function AnalyticsPage() {
   const [rowsPerPage, setRowsPerPage] = useState(30);
   const [currentPage, setCurrentPage] = useState(1);
   const { toast} = useToast();
+
+  // Handler for extending data range when user clicks preset beyond loaded days
+  const handleExtendRange = useCallback((targetDays: number) => {
+    if (!currentProjectId || !currentReportId) return;
+    
+    const loadedDays = currentReport?.dataRange?.loadedDays || 30;
+    if (targetDays <= loadedDays) return;
+    
+    logger.log('[AnalyticsPage] Extending data range:', { loadedDays, targetDays });
+    toast({
+      title: "Расширение данных",
+      description: `Загружаем данные за ${targetDays} дней... Это может занять 1-3 минуты.`,
+    });
+    
+    dispatch(extendRangeThunk({ 
+      projectId: currentProjectId, 
+      reportId: currentReportId, 
+      targetDays 
+    }));
+  }, [currentProjectId, currentReportId, currentReport?.dataRange?.loadedDays, dispatch, toast]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -2167,25 +2264,50 @@ export default function AnalyticsPage() {
   // Показываем Loading Overlay ВСЕГДА когда нет данных для отображения
   // Это включает: первичную загрузку, переключение табов, смену дат, любую ситуацию без данных
   useEffect(() => {
+    // Не показываем лоадер, если ещё не выбран/не загружен отчёт
+    if (!currentReport?.id) {
+      setIsInitialSyncInProgress(false);
+      return;
+    }
+
     const hasNoData = Object.keys(metricsData).length === 0;
     const isGlobalLoading = isCacheLoading;
     const isCurrentTabLoading = loadingTabs.has(activeTab as TabType);
     const isAnyLoading = isGlobalLoading || isCurrentTabLoading;
-    
-    // Показываем overlay если нет данных ИЛИ идёт загрузка текущего таба
-    // НИКОГДА не показываем пустые карточки — только анимацию куба
-    if (hasNoData || isAnyLoading) {
-      logger.log('[AnalyticsPage] No data or loading — showing loading overlay', { 
-        hasNoData, 
-        isGlobalLoading, 
+
+    const reportStatus = currentReport?.status;
+    const isReportGenerating = reportStatus === 'pending' || reportStatus === 'syncing' || reportStatus === 'extending';
+
+    const syncJobStatus = syncStatusCurrent?.status;
+    const isSyncJobActive = syncJobStatus === 'queued' || syncJobStatus === 'running';
+
+    // Показываем overlay только когда реально идёт загрузка/синхронизация.
+    // Если данных нет, но синхронизации нет — не держим бесконечный лоадер.
+    const shouldShowOverlay =
+      isAnyLoading ||
+      (hasNoData && (isReportGenerating || isSyncJobActive));
+
+    if (shouldShowOverlay) {
+      logger.log('[AnalyticsPage] Showing loading overlay', {
+        hasNoData,
+        isGlobalLoading,
         isCurrentTabLoading,
-        activeTab 
+        activeTab,
+        reportStatus,
+        syncJobStatus,
       });
-      setIsInitialSyncInProgress(true);
-    } else {
-      setIsInitialSyncInProgress(false);
     }
-  }, [metricsData, isCacheLoading, loadingTabs, activeTab]);
+
+    setIsInitialSyncInProgress(shouldShowOverlay);
+  }, [
+    currentReport?.id,
+    currentReport?.status,
+    metricsData,
+    isCacheLoading,
+    loadingTabs,
+    activeTab,
+    syncStatusCurrent?.status,
+  ]);
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -2208,7 +2330,7 @@ export default function AnalyticsPage() {
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </Button>
-                <div className="flex flex-col">
+                <div className="flex flex-col min-w-0 max-w-[400px]">
                   {isEditingName ? (
                     <input
                       type="text"
@@ -2221,13 +2343,17 @@ export default function AnalyticsPage() {
                       data-testid="input-report-name-edit"
                     />
                   ) : (
-                    <h1
-                      onClick={handleStartEditing}
-                      className="text-display-lg text-foreground cursor-pointer hover:opacity-80"
-                      data-testid="text-report-name"
+                    <div 
+                      className="overflow-x-auto scrollbar-thin max-w-full"
                     >
-                      {currentReport.name}
-                    </h1>
+                      <h1
+                        onClick={handleStartEditing}
+                        className="text-display-lg text-foreground cursor-pointer hover:opacity-80 whitespace-nowrap"
+                        data-testid="text-report-name"
+                      >
+                        {currentReport.name}
+                      </h1>
+                    </div>
                   )}
                   <p className="text-body-sm text-muted-foreground" data-testid="text-created-date">
                     Created: {new Date(currentReport.createdAt).toLocaleString('ru-RU', {
@@ -2239,6 +2365,9 @@ export default function AnalyticsPage() {
                       second: '2-digit',
                       hour12: false
                     })}
+                    <span className="ml-2 text-muted-foreground/60 font-mono text-[10px]" title={`Report ID: ${currentReport.id}`}>
+                      #{currentReport.code || currentReport.id.slice(0, 8)}
+                    </span>
                   </p>
                 </div>
               </div>
@@ -2278,13 +2407,13 @@ export default function AnalyticsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Select value={attribution} onValueChange={setAttribution} disabled={isLoadingAttributions}>
+                <Select value={attribution} onValueChange={handleAttributionChange}>
                   <SelectTrigger className="w-auto h-auto border-0 shadow-none hover:bg-accent/50 py-0.5 px-2 gap-1" data-testid="select-attribution">
                     <div className="flex flex-col items-start">
                       <span className="text-[11px] text-muted-foreground leading-tight">Attribution:</span>
                       <span className="text-sm font-normal leading-tight whitespace-nowrap">
-                        {isLoadingAttributions ? 'Loading...' : 
-                         availableAttributions.find(a => a.value === attribution)?.label || attribution}
+                        {availableAttributions.find(a => a.value === attribution)?.label || 
+                         attribution.replace(/_/g, ' ').replace(/(\d+)d/g, '$1-day')}
                       </span>
                     </div>
                   </SelectTrigger>
@@ -2293,15 +2422,62 @@ export default function AnalyticsPage() {
                       <>
                         <div className="text-xs font-semibold text-muted-foreground px-2 py-1.5">Available Attribution Windows</div>
                         {availableAttributions.map((attr) => (
-                          <SelectItem key={attr.value} value={attr.value}>
-                            {attr.label} ({attr.count.toLocaleString()} records)
+                          <SelectItem 
+                            key={attr.value} 
+                            value={attr.value}
+                            className={attr.value === attribution ? 'bg-primary/10 text-primary font-medium' : ''}
+                          >
+                            <span className={attr.value === attribution ? 'text-primary' : ''}>
+                              {attr.label} ({attr.count.toLocaleString()} records)
+                            </span>
                           </SelectItem>
                         ))}
                       </>
                     ) : (
                       <>
                         <div className="text-xs font-semibold text-muted-foreground px-2 py-1.5">Click + View (Recommended)</div>
-                        <SelectItem value="7d_click_1d_view">7d click / 1d view (Default)</SelectItem>
+                        <SelectItem 
+                          value="7d_click_1d_view"
+                          className={attribution === '7d_click_1d_view' ? 'bg-primary/10 text-primary font-medium' : ''}
+                        >
+                          <span className={attribution === '7d_click_1d_view' ? 'text-primary' : ''}>
+                            7d click / 1d view (Default)
+                          </span>
+                        </SelectItem>
+                        <SelectItem 
+                          value="28d_click_1d_view"
+                          className={attribution === '28d_click_1d_view' ? 'bg-primary/10 text-primary font-medium' : ''}
+                        >
+                          <span className={attribution === '28d_click_1d_view' ? 'text-primary' : ''}>
+                            28d click / 1d view
+                          </span>
+                        </SelectItem>
+                        <div className="text-xs font-semibold text-muted-foreground px-2 py-1.5 mt-2">Click Only</div>
+                        <SelectItem 
+                          value="1d_click"
+                          className={attribution === '1d_click' ? 'bg-primary/10 text-primary font-medium' : ''}
+                        >
+                          <span className={attribution === '1d_click' ? 'text-primary' : ''}>1d click only</span>
+                        </SelectItem>
+                        <SelectItem 
+                          value="7d_click"
+                          className={attribution === '7d_click' ? 'bg-primary/10 text-primary font-medium' : ''}
+                        >
+                          <span className={attribution === '7d_click' ? 'text-primary' : ''}>7d click only</span>
+                        </SelectItem>
+                        <SelectItem 
+                          value="28d_click"
+                          className={attribution === '28d_click' ? 'bg-primary/10 text-primary font-medium' : ''}
+                        >
+                          <span className={attribution === '28d_click' ? 'text-primary' : ''}>28d click only</span>
+                        </SelectItem>
+                        <div className="text-xs font-semibold text-muted-foreground px-2 py-1.5 mt-2">View Only</div>
+                        <SelectItem 
+                          value="1d_view"
+                          className={attribution === '1d_view' ? 'bg-primary/10 text-primary font-medium' : ''}
+                        >
+                          <span className={attribution === '1d_view' ? 'text-primary' : ''}>1d view only</span>
+                        </SelectItem>
                       </>
                     )}
                   </SelectContent>
@@ -2366,6 +2542,9 @@ export default function AnalyticsPage() {
                   showColor={showColor}
                   alignment={alignment}
                   showOnlySelected={useTableSelection}
+                  loadedDays={currentReport?.dataRange?.loadedDays}
+                  isSyncing={isReportSyncing}
+                  onExtendRange={handleExtendRange}
                   onChange={(data) => {
                     logger.log('[AnalyticsPage] DateRangePicker onChange:', {
                       periodA: data.periodA ? {

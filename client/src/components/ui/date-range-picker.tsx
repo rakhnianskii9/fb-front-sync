@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns/format";
 import { subDays } from "date-fns/subDays";
 import { differenceInDays } from "date-fns/differenceInDays";
@@ -26,6 +26,12 @@ interface DateRangePickerProps {
   showColor?: boolean;
   alignment?: string;
   showOnlySelected?: boolean;
+  /** Number of days currently loaded in the report */
+  loadedDays?: number;
+  /** Whether sync is currently in progress */
+  isSyncing?: boolean;
+  /** Callback when user clicks preset that requires data extension */
+  onExtendRange?: (targetDays: number) => void;
   onChange?: (data: {
     periodA?: DateRange;
     periodB?: DateRange;
@@ -44,10 +50,14 @@ export function DateRangePicker({
   showColor: initialShowColor = false,
   alignment: initialAlignment = "previous",
   showOnlySelected: initialShowOnlySelected = true,
+  loadedDays,
+  isSyncing = false,
+  onExtendRange,
   onChange,
   className,
 }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
+  const [syncingPresetDays, setSyncingPresetDays] = useState<number | null>(null);
   
   // Default period - last 30 days (Report-First Sync Architecture)
   const getDefaultPeriod = () => {
@@ -143,6 +153,15 @@ export function DateRangePicker({
   const activePreset = getActivePreset();
 
   const handlePresetClick = (days: number) => {
+    // Check if this preset requires data extension
+    const needsExtend = loadedDays !== undefined && days > loadedDays;
+    
+    // Trigger extend range if needed
+    if (needsExtend && onExtendRange) {
+      setSyncingPresetDays(days);
+      onExtendRange(days);
+    }
+    
     const end = new Date();
     end.setHours(0, 0, 0, 0);
     const start = subDays(end, days - 1);
@@ -167,6 +186,22 @@ export function DateRangePicker({
     
     // Don't close popup - let user see the selection and press Apply
   };
+
+  // Track previous syncing state to detect when sync ends
+  const wasSyncingRef = useRef(false);
+  
+  // Stop showing preset spinner when syncing ENDS (was true, now false) or data is already loaded
+  useEffect(() => {
+    // Only clear syncingPresetDays when sync actually ENDS (transition from true to false)
+    if (wasSyncingRef.current && !isSyncing) {
+      setSyncingPresetDays(null);
+    }
+    // Also clear if data is already loaded
+    if (loadedDays !== undefined && syncingPresetDays !== null && loadedDays >= syncingPresetDays) {
+      setSyncingPresetDays(null);
+    }
+    wasSyncingRef.current = isSyncing;
+  }, [isSyncing, loadedDays, syncingPresetDays]);
 
   const handlePeriodBChange = (range: DateRange | undefined) => {
     if (!range) {
@@ -273,9 +308,9 @@ export function DateRangePicker({
 
     return (
       <div className="flex items-center gap-2">
-        <span>B: {formatDateRange(initialPeriodB)}</span>
+        <span>{formatDateRange(initialPeriodB)}</span>
         <span className="text-muted-foreground">·</span>
-        <span>A: {formatDateRange(initialPeriodA)}</span>
+        <span>{formatDateRange(initialPeriodA)}</span>
       </div>
     );
   };
@@ -369,21 +404,16 @@ export function DateRangePicker({
             </div>
 
             <div className="flex flex-col gap-2 min-w-[70px]">
-              {presets.map((preset) => (
-                <Button
-                  key={preset.days}
-                  variant={activePreset === preset.days ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => handlePresetClick(preset.days)}
-                  className={cn(
-                    "text-sm h-8 px-3",
-                    activePreset === preset.days && "bg-primary text-primary-foreground"
-                  )}
-                  data-testid={`button-preset-${preset.days}`}
-                >
-                  {preset.label}
-                </Button>
-              ))}
+              <DateRangePresets
+                presets={presets}
+                activePreset={activePreset}
+                onPresetClick={handlePresetClick}
+                loadedDays={loadedDays}
+                isSyncing={isSyncing}
+                syncingPresetDays={syncingPresetDays}
+                gap="tight"
+                buttonHeight="sm"
+              />
             </div>
           </div>
 

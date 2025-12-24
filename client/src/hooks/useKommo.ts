@@ -8,7 +8,8 @@ import type {
   KommoConnection, 
   KommoPipeline, 
   KommoUser, 
-  KommoCustomField 
+  KommoCustomField,
+  KommoDistributionRule,
 } from '@/components/kommo/types'
 
 // Типы ответа API
@@ -17,6 +18,35 @@ interface KommoConfigResponse {
   subdomain?: string
   accountName?: string
   accountId?: string
+  lastSyncAt?: string
+  // Fields available in Kommo (from OAuth bootstrap)
+  availableFields?: Array<{
+    id: number
+    name: string
+    code?: string
+    type: string
+    enums?: Array<{ id: number; value: string }>
+    is_required?: boolean
+    entity_type?: string
+  }>
+  // Selected mapping (server-side persisted)
+  fieldMapping?: {
+    paymentLink?: number
+    paymentId?: number
+    phone?: number
+    email?: number
+    utmSource?: number
+    utmCampaign?: number
+    utmMedium?: number
+    utmContent?: number
+    utmTerm?: number
+    ipGeoCountry?: number
+    ipGeoCity?: number
+    whatsappPhone?: number
+    facebookClid?: number
+    fbp?: number
+    fbc?: number
+  }
   // Inbound
   inboundPipelineId?: number
   inboundStatusId?: number
@@ -26,12 +56,17 @@ interface KommoConfigResponse {
   wonStatusId?: number
   sendPurchaseOnWon?: boolean
   includeValueInPurchase?: boolean
+  // B+C+D Attribution Fallback Strategy
+  sendWithoutAttribution?: boolean
+  lookupAttributionByPii?: boolean
+  markOfflineIfNoAttribution?: boolean
   // Валюта аккаунта (из Kommo API, read-only)
   accountCurrency?: string
   accountCurrencySymbol?: string
   // Distribution
   defaultResponsibleUserId?: number
   defaultTags?: string[]
+  distributionRule?: KommoDistributionRule
   // Wizard
   wizardCompleted?: boolean
 }
@@ -43,11 +78,18 @@ interface KommoMetadataResponse {
   // Валюта аккаунта (из Kommo API)
   accountCurrency?: string
   accountCurrencySymbol?: string
+  warnings?: string[]
 }
 
 /**
  * Преобразование pipelines из Kommo API в наш формат
- * Kommo API возвращает статусы со свойством type: 0=normal, 1=success, 2=fail
+ * В Kommo системные статусы закрытия сделок имеют фиксированные IDs:
+ * - 142: Closed - Won
+ * - 143: Closed - Lost
+ *
+ * В некоторых аккаунтах поле `type` в ответе Kommo может быть неоднозначным.
+ * Чтобы не помечать обычные стадии как Won/Lost (например, "Incoming leads"),
+ * классифицируем успех/провал по системным ID.
  */
 function transformPipelines(apiPipelines: any[]): KommoPipeline[] {
   return apiPipelines.map(p => ({
@@ -61,7 +103,7 @@ function transformPipelines(apiPipelines: any[]): KommoPipeline[] {
       name: s.name,
       sort: s.sort || 0,
       color: s.color || '#ccc',
-      type: s.type === 0 ? 'normal' : s.type === 1 ? 'success' : 'fail',
+      type: s.id === 142 ? 'success' : s.id === 143 ? 'fail' : 'normal',
       pipelineId: p.id
     }))
   }))
@@ -103,17 +145,36 @@ export function useKommo() {
   const [config, setConfig] = useState<KommoConfigResponse | null>(null)
 
   /**
+   * Безопасный парсер JSON для ответов API.
+   * Возвращает null, если тело не JSON (или пустое).
+   */
+  const safeJson = useCallback(async (response: Response) => {
+    try {
+      return await response.json()
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
    * Загрузка конфигурации Kommo
    */
-  const loadConfig = useCallback(async () => {
-    if (!workspaceId) return
+  const loadConfig = useCallback(async (): Promise<boolean> => {
+    if (!workspaceId) return false
     
     try {
       const response = await fetch(`/api/v1/kommo/config?workspaceId=${workspaceId}`, {
         credentials: 'include',
         headers: { 'x-request-from': 'internal' }
       })
-      const data: KommoConfigResponse = await response.json()
+      const raw = await safeJson(response)
+
+      if (!response.ok) {
+        const errorMessage = raw?.error || `Failed to load config (HTTP ${response.status})`
+        throw new Error(errorMessage)
+      }
+
+      const data: KommoConfigResponse = raw
       
       setConfig(data)
       
@@ -125,37 +186,20 @@ export function useKommo() {
           status: 'connected',
           connectedAt: new Date()
         })
-        
-        // Сразу загружаем metadata если подключены
-        try {
-          const metaResponse = await fetch(`/api/v1/kommo/metadata?workspaceId=${workspaceId}`, {
-            credentials: 'include',
-            headers: { 'x-request-from': 'internal' }
-          })
-          
-          if (metaResponse.ok) {
-            const metaData: KommoMetadataResponse = await metaResponse.json()
-            console.log('[useKommo] Metadata loaded:', { 
-              pipelines: metaData.pipelines?.length || 0, 
-              users: metaData.users?.length || 0 
-            })
-            setPipelines(transformPipelines(metaData.pipelines || []))
-            setUsers(transformUsers(metaData.users || []))
-            setCustomFields(metaData.customFields || [])
-          } else {
-            console.error('[useKommo] Metadata request failed:', metaResponse.status)
-          }
-        } catch (metaErr: any) {
-          console.error('[useKommo] Failed to load metadata:', metaErr)
-        }
+        return true
       } else {
         setConnection(null)
+        setPipelines([])
+        setUsers([])
+        setCustomFields([])
+        return false
       }
     } catch (err: any) {
       console.error('[useKommo] Failed to load config:', err)
       setError(err.message)
+      return false
     }
-  }, [workspaceId])
+  }, [workspaceId, safeJson])
 
   /**
    * Загрузка метаданных (pipelines, users, customFields)
@@ -170,7 +214,13 @@ export function useKommo() {
       })
       
       if (!response.ok) {
-        console.error('[useKommo] Metadata request failed:', response.status)
+        const raw = await safeJson(response)
+        const errorMessage = raw?.error || `Failed to load metadata (HTTP ${response.status})`
+        console.error('[useKommo] Metadata request failed:', response.status, errorMessage)
+        setError(errorMessage)
+        setPipelines([])
+        setUsers([])
+        setCustomFields([])
         return
       }
       
@@ -180,15 +230,23 @@ export function useKommo() {
         pipelines: data.pipelines?.length || 0, 
         users: data.users?.length || 0 
       })
+
+      if (Array.isArray(data.warnings) && data.warnings.length) {
+        // Показываем предупреждение пользователю, но не считаем это фаталом.
+        setError(data.warnings.join(' '))
+      }
       
       setPipelines(transformPipelines(data.pipelines || []))
       setUsers(transformUsers(data.users || []))
       setCustomFields(data.customFields || [])
     } catch (err: any) {
       console.error('[useKommo] Failed to load metadata:', err)
-      // Не фатальная ошибка — не блокируем UI
+      setError(err.message)
+      setPipelines([])
+      setUsers([])
+      setCustomFields([])
     }
-  }, [workspaceId])
+  }, [workspaceId, safeJson])
 
   /**
    * Сохранение конфигурации
@@ -222,9 +280,15 @@ export function useKommo() {
   }, [workspaceId])
 
   /**
-   * OAuth подключение через popup
+   * Подключение через Authorization Code (Private Integration)
+   * Прямой обмен кода на токены без popup
    */
-  const connect = useCallback(() => {
+  const connect = useCallback(async (credentials: { 
+    subdomain: string; 
+    clientId: string; 
+    clientSecret: string;
+    authorizationCode: string;
+  }) => {
     if (!workspaceId) {
       console.error('[useKommo] No workspaceId available')
       return
@@ -235,53 +299,78 @@ export function useKommo() {
       accountDomain: '',
       status: 'connecting'
     })
+    setError(null)
 
-    const oauthUrl = `/api/v1/kommo/oauth/start?workspaceId=${workspaceId}`
-    const popup = window.open(oauthUrl, 'Kommo OAuth', 'width=600,height=700,scrollbars=yes')
+    try {
+      // Kommo validates redirect_uri against integration settings.
+      // Provide a deterministic default that matches our server callback endpoint.
+      const redirectUri = (typeof window !== 'undefined' && window.location?.origin)
+        ? `${window.location.origin}/api/v1/kommo/oauth/callback`
+        : undefined
 
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'kommo-oauth-success') {
-        setConnection({
-          accountId: event.data.accountId || '',
-          accountDomain: event.data.subdomain || '',
-          status: 'connected',
-          connectedAt: new Date()
+      const response = await fetch('/api/v1/kommo/connect', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-request-from': 'internal'
+        },
+        body: JSON.stringify({
+          workspaceId,
+          subdomain: credentials.subdomain,
+          clientId: credentials.clientId,
+          clientSecret: credentials.clientSecret,
+          authorizationCode: credentials.authorizationCode,
+          redirectUri
         })
-        popup?.close()
-        window.removeEventListener('message', handleMessage)
-        // Перезагружаем конфиг и метаданные
-        loadConfig()
-      } else if (event.data?.type === 'kommo-oauth-error') {
-        setConnection({
-          accountId: '',
-          accountDomain: '',
-          status: 'error'
-        })
-        popup?.close()
-        window.removeEventListener('message', handleMessage)
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to connect')
       }
+
+      setConnection({
+        accountId: data.accountId || '',
+        accountDomain: data.subdomain || credentials.subdomain,
+        status: 'connected',
+        connectedAt: new Date()
+      })
+
+      // Перезагружаем конфиг
+      await loadConfig()
+      
+      // Принудительно загружаем metadata (могут быть задержки после connect)
+      console.log('[useKommo] Waiting for config to propagate...')
+      await new Promise(resolve => setTimeout(resolve, 500))
+      await loadMetadata()
+
+    } catch (err: any) {
+      console.error('[useKommo] Connect error:', err)
+      setError(err.message)
+      setConnection({
+        accountId: '',
+        accountDomain: '',
+        status: 'error'
+      })
     }
-
-    window.addEventListener('message', handleMessage)
-
-    const checkClosed = setInterval(() => {
-      if (popup?.closed) {
-        clearInterval(checkClosed)
-        window.removeEventListener('message', handleMessage)
-        setConnection(prev => prev?.status === 'connecting' ? null : prev)
-      }
-    }, 500)
-  }, [workspaceId, loadConfig])
+  }, [workspaceId, loadConfig, loadMetadata])
 
   /**
-   * Отключение
+   * Отключение — только сброс локального состояния
+   * Данные в БД сохраняются для возможности переподключения
    */
   const disconnect = useCallback(() => {
+    // Сбрасываем локальный state
     setConnection(null)
     setConfig(null)
     setPipelines([])
     setUsers([])
     setCustomFields([])
+    setError(null)
+    
+    console.log('[useKommo] Disconnected (local state cleared)')
   }, [])
 
   /**
@@ -290,7 +379,7 @@ export function useKommo() {
   const getDefaultWonStatus = useCallback((pipelineId: number): number | null => {
     const pipeline = pipelines.find(p => p.id === pipelineId)
     if (!pipeline) return null
-    
+
     const successStatus = pipeline.statuses.find(s => s.type === 'success')
     return successStatus?.id || null
   }, [pipelines])
@@ -299,19 +388,14 @@ export function useKommo() {
   useEffect(() => {
     const init = async () => {
       setIsLoading(true)
-      await loadConfig()
+      const isConnected = await loadConfig()
+      if (isConnected) {
+        await loadMetadata()
+      }
       setIsLoading(false)
     }
     init()
-  }, [loadConfig])
-
-  // Загрузка метаданных после подключения
-  useEffect(() => {
-    if (connection?.status === 'connected') {
-      console.log('[useKommo] Connection established, loading metadata...')
-      loadMetadata()
-    }
-  }, [connection?.status]) // Убрал loadMetadata из зависимостей чтобы избежать лишних вызовов
+  }, [loadConfig, loadMetadata])
 
   return {
     // Состояние

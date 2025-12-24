@@ -64,9 +64,11 @@ import {
   selectCurrentProjectNotes,
   selectCampaigns,
   selectAdSets,
-  selectAds
+  selectAds,
+  selectCreatives
 } from "@/store/selectors";
 import { addNote, deleteNote, toggleNotePin, duplicateNote, updateNote, fetchNotes } from "@/store/slices/notesSlice";
+import { fetchCreatives } from "@/store/slices/creativesThunks";
 import { useToast } from "@/hooks/use-toast";
 import type { Note, NoteRelatedTo } from "@shared/schema";
 
@@ -432,15 +434,14 @@ export default function NotesPage() {
   const campaigns = useAppSelector(selectCampaigns);
   const adsets = useAppSelector(selectAdSets);
   const ads = useAppSelector(selectAds);
+  const creatives = useAppSelector(selectCreatives);
 
-  const selectableItems = useMemo(() => {
-    return [
-      ...campaigns.map(c => ({ type: 'campaign' as const, id: c.id, name: c.name || c.campaignId })),
-      ...adsets.map(a => ({ type: 'adset' as const, id: a.id, name: a.name || a.adsetId })),
-      ...ads.map(a => ({ type: 'ad' as const, id: a.id, name: a.name || a.adId })),
-      // Creatives are not yet in store, skipping for now
-    ];
-  }, [campaigns, adsets, ads]);
+  type RelatedTreeNode = {
+    type: NoteRelatedTo['type'];
+    id: string;
+    name: string;
+    children: RelatedTreeNode[];
+  };
 
   const [activeTab, setActiveTab] = useState<"user" | "ai">("user");
   const [selectedNotes, setSelectedNotes] = useState<string[]>([]);
@@ -472,7 +473,9 @@ export default function NotesPage() {
   const [noteContent, setNoteContent] = useState("");
   const [columnSorts, setColumnSorts] = useState<Record<string, ColumnSort>>({});
   const [columnConditions, setColumnConditions] = useState<Record<string, ColumnCondition>>({});
+  const [headerDateFilterField, setHeaderDateFilterField] = useState<'createdAt' | 'deadline'>('createdAt');
   const [columnOrder, setColumnOrder] = useState<string[]>([
+    'createdAt',
     'title',
     'description',
     'status',
@@ -542,11 +545,13 @@ export default function NotesPage() {
               return true;
           }
         });
-      } else if (condition.type === 'date' && columnId === 'deadline') {
+      } else if (condition.type === 'date' && (columnId === 'deadline' || columnId === 'createdAt')) {
         result = result.filter(note => {
-          if (!note.deadline) return condition.operator === 'on' ? false : true;
-          
-          const noteDate = new Date(note.deadline);
+          const dateValue = columnId === 'deadline' ? note.deadline : note.createdAt;
+
+          if (!dateValue) return condition.operator === 'on' ? false : true;
+
+          const noteDate = new Date(dateValue);
           const filterDate = new Date(condition.value);
           
           // Reset times to compare just dates
@@ -585,6 +590,9 @@ export default function NotesPage() {
         } else if (columnId === 'deadline') {
           aVal = a.deadline ? new Date(a.deadline).getTime() : 0;
           bVal = b.deadline ? new Date(b.deadline).getTime() : 0;
+        } else if (columnId === 'createdAt') {
+          aVal = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          bVal = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         } else if (columnId === 'description') {
           aVal = a.description.toLowerCase();
           bVal = b.description.toLowerCase();
@@ -622,12 +630,109 @@ export default function NotesPage() {
     return selectedNotes.filter(id => visibleIds.has(id));
   }, [selectedNotes, filteredNotes]);
 
-  const filteredSelectableItems = useMemo(() => {
-    return selectableItems.filter(item =>
-      item.name.toLowerCase().includes(relatedSearchQuery.toLowerCase()) ||
-      item.type.toLowerCase().includes(relatedSearchQuery.toLowerCase())
+  const filteredRelatedTree = useMemo<RelatedTreeNode[]>(() => {
+    const query = relatedSearchQuery.trim().toLowerCase();
+
+    const creativeByCreativeId = new Map(
+      creatives
+        .filter(c => !!c.creativeId)
+        .map(c => [c.creativeId, c])
     );
-  }, [relatedSearchQuery, selectableItems]);
+
+    const adsetsByCampaignId = new Map<string, typeof adsets>();
+    for (const adset of adsets) {
+      if (!adset.campaignId) continue;
+      const list = adsetsByCampaignId.get(adset.campaignId) ?? [];
+      list.push(adset);
+      adsetsByCampaignId.set(adset.campaignId, list);
+    }
+
+    const adsByAdsetId = new Map<string, typeof ads>();
+    for (const ad of ads) {
+      if (!ad.adsetId) continue;
+      const list = adsByAdsetId.get(ad.adsetId) ?? [];
+      list.push(ad);
+      adsByAdsetId.set(ad.adsetId, list);
+    }
+
+    const makeCreativeNode = (creativeId: string): RelatedTreeNode | null => {
+      const creative = creativeByCreativeId.get(creativeId);
+      if (!creative) return null;
+      return {
+        type: 'creative',
+        id: creative.creativeId,
+        name: creative.name || creative.title || creative.creativeId,
+        children: [],
+      };
+    };
+
+    const rootNodes: RelatedTreeNode[] = campaigns.map((campaign) => {
+      const campaignId = campaign.campaignId;
+      const campaignNode: RelatedTreeNode = {
+        type: 'campaign',
+        id: campaignId,
+        name: campaign.name || campaignId,
+        children: [],
+      };
+
+      const campaignAdsets = adsetsByCampaignId.get(campaignId) ?? [];
+      campaignNode.children = campaignAdsets.map((adset) => {
+        const adsetNode: RelatedTreeNode = {
+          type: 'adset',
+          id: adset.adsetId,
+          name: adset.name || adset.adsetId,
+          children: [],
+        };
+
+        const adsetAds = adsByAdsetId.get(adset.adsetId) ?? [];
+        adsetNode.children = adsetAds.map((ad) => {
+          const adNode: RelatedTreeNode = {
+            type: 'ad',
+            id: ad.adId,
+            name: ad.name || ad.adId,
+            children: [],
+          };
+
+          if (ad.creativeId) {
+            const creativeNode = makeCreativeNode(ad.creativeId);
+            if (creativeNode) {
+              adNode.children.push(creativeNode);
+            }
+          }
+
+          return adNode;
+        });
+
+        return adsetNode;
+      });
+
+      return campaignNode;
+    });
+
+    const matchesQuery = (node: RelatedTreeNode) => {
+      if (!query) return true;
+      return (
+        node.name.toLowerCase().includes(query) ||
+        node.type.toLowerCase().includes(query)
+      );
+    };
+
+    const filterNode = (node: RelatedTreeNode): RelatedTreeNode | null => {
+      const filteredChildren = node.children
+        .map(filterNode)
+        .filter((c): c is RelatedTreeNode => c !== null);
+
+      if (matchesQuery(node) || filteredChildren.length > 0) {
+        return { ...node, children: filteredChildren };
+      }
+
+      return null;
+    };
+
+    return rootNodes
+      .map(filterNode)
+      .filter((n): n is RelatedTreeNode => n !== null);
+  }, [ads, adsets, campaigns, creatives, relatedSearchQuery]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -837,6 +942,13 @@ export default function NotesPage() {
       setExpandedItems([]);
       setCurrentNoteForRelated(noteId);
       setRelatedDialogOpen(true);
+
+      if (creatives.length === 0 && ads.length > 0) {
+        const adIds = Array.from(new Set(ads.map(a => a.adId).filter(Boolean)));
+        if (adIds.length > 0) {
+          dispatch(fetchCreatives({ adIds }));
+        }
+      }
     }
   };
 
@@ -849,16 +961,16 @@ export default function NotesPage() {
   };
 
   const handleToggleRelatedItem = (item: NoteRelatedTo) => {
-    const exists = selectedRelatedItems.find(i => i.id === item.id);
+    const exists = selectedRelatedItems.find(i => i.id === item.id && i.type === item.type);
     if (exists) {
-      setSelectedRelatedItems(selectedRelatedItems.filter(i => i.id !== item.id));
+      setSelectedRelatedItems(selectedRelatedItems.filter(i => !(i.id === item.id && i.type === item.type)));
     } else {
       setSelectedRelatedItems([...selectedRelatedItems, item]);
     }
   };
 
-  const handleRemoveRelatedItem = (itemId: string) => {
-    setSelectedRelatedItems(selectedRelatedItems.filter(i => i.id !== itemId));
+  const handleRemoveRelatedItem = (item: NoteRelatedTo) => {
+    setSelectedRelatedItems(selectedRelatedItems.filter(i => !(i.id === item.id && i.type === item.type)));
   };
 
   const handleSaveRelatedItems = () => {
@@ -971,31 +1083,21 @@ export default function NotesPage() {
     return colors[index % colors.length];
   };
 
-  // Build hierarchical tree from related items
-  const buildRelatedTree = (items: NoteRelatedTo[]) => {
-    const hierarchy = ['campaign', 'adset', 'ad', 'creative'];
-    const grouped: Record<string, NoteRelatedTo[]> = {};
-    
-    items.forEach(item => {
-      if (!grouped[item.type]) grouped[item.type] = [];
-      grouped[item.type].push(item);
-    });
 
-    const result: { item: NoteRelatedTo; level: number }[] = [];
-    
-    hierarchy.forEach((type, level) => {
-      if (grouped[type]) {
-        grouped[type].forEach(item => {
-          result.push({ item, level });
-        });
-      }
-    });
-
-    return result;
-  };
 
   const getColumnContent = (note: Note, columnId: string) => {
     switch (columnId) {
+      case 'createdAt': {
+        const createdAtDate = note.createdAt ? new Date(note.createdAt) : null;
+        const isValidDate = createdAtDate && !Number.isNaN(createdAtDate.getTime());
+        return (
+          <div className="flex justify-center">
+            <span className="text-sm text-muted-foreground">
+              {isValidDate ? format(createdAtDate as Date, 'dd.MM.yyyy') : ''}
+            </span>
+          </div>
+        );
+      }
       case 'title':
         return (
           <div className="flex justify-center">
@@ -1230,6 +1332,7 @@ export default function NotesPage() {
 
   const getColumnName = (columnId: string): string => {
     const names: Record<string, string> = {
+      createdAt: 'Date',
       title: 'Title',
       description: 'Note',
       status: 'Status',
@@ -1240,6 +1343,15 @@ export default function NotesPage() {
     };
     return names[columnId] || columnId;
   };
+
+  const headerDateFilterDate = useMemo(() => {
+    const condition = columnConditions[headerDateFilterField];
+    if (!condition || condition.type !== 'date' || !condition.value) return undefined;
+
+    const date = new Date(condition.value);
+    if (Number.isNaN(date.getTime())) return undefined;
+    return date;
+  }, [columnConditions, headerDateFilterField]);
 
   if (!currentProjectId) {
     return (
@@ -1260,27 +1372,105 @@ export default function NotesPage() {
               Manage your notes, track tasks, and review AI-generated insights.
             </p>
           </div>
-          {visibleSelectedNotes.length > 0 ? (
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">
-                {visibleSelectedNotes.length} selected
-              </span>
-              <Button 
-                onClick={handleCloseSelected} 
-                variant="destructive"
-                data-testid="button-close-selected" 
-                size="sm"
-              >
-                <XCircle className="w-4 h-4 mr-2" />
-                Close All
+          <div className="flex items-center gap-3">
+            {visibleSelectedNotes.length > 0 ? (
+              <>
+                <span className="text-sm text-muted-foreground">
+                  {visibleSelectedNotes.length} selected
+                </span>
+                <Button
+                  onClick={handleCloseSelected}
+                  variant="destructive"
+                  data-testid="button-close-selected"
+                  size="sm"
+                >
+                  <XCircle className="w-4 h-4 mr-2" />
+                  Close All
+                </Button>
+              </>
+            ) : (
+              <Button onClick={handleCreateNote} data-testid="button-add-note" size="sm">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Note
               </Button>
+            )}
+
+            <div className="flex items-center rounded-md border border-input overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setHeaderDateFilterField('createdAt')}
+                className={cn(
+                  'px-3 py-1.5 text-sm transition-colors',
+                  headerDateFilterField === 'createdAt'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-background text-foreground hover:bg-muted'
+                )}
+                data-testid="toggle-date-filter-created"
+              >
+                Created
+              </button>
+              <button
+                type="button"
+                onClick={() => setHeaderDateFilterField('deadline')}
+                className={cn(
+                  'px-3 py-1.5 text-sm transition-colors border-l border-input',
+                  headerDateFilterField === 'deadline'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'bg-background text-foreground hover:bg-muted'
+                )}
+                data-testid="toggle-date-filter-deadline"
+              >
+                Deadline
+              </button>
             </div>
-          ) : (
-            <Button onClick={handleCreateNote} data-testid="button-add-note" size="sm">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Note
-            </Button>
-          )}
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "justify-start text-left font-normal",
+                    !headerDateFilterDate && "text-muted-foreground"
+                  )}
+                  data-testid="button-created-date-filter"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {headerDateFilterDate ? format(headerDateFilterDate, "dd.MM.yyyy") : "Select date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="single"
+                  selected={headerDateFilterDate}
+                  onSelect={(date) => {
+                    setColumnConditions((prev) => {
+                      const updated = { ...prev };
+
+                      const otherField = headerDateFilterField === 'createdAt' ? 'deadline' : 'createdAt';
+
+                      if (!date) {
+                        delete updated[headerDateFilterField];
+                        return updated;
+                      }
+
+                      // Only one header date filter active at a time.
+                      delete updated[otherField];
+
+                      updated[headerDateFilterField] = {
+                        type: 'date',
+                        operator: 'on',
+                        value: date.toISOString(),
+                      };
+
+                      return updated;
+                    });
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </div>
 
@@ -1420,8 +1610,8 @@ export default function NotesPage() {
                         strategy={horizontalListSortingStrategy}
                       >
                         {columnOrder.map((columnId) => {
-                          const columnType = (columnId === 'priority' || columnId === 'status') ? 'status' : 
-                                           (columnId === 'created') ? 'date' : 'text';
+                          const columnType = (columnId === 'priority' || columnId === 'status') ? 'status' :
+                                           (columnId === 'deadline' || columnId === 'createdAt') ? 'date' : 'text';
                           return (
                             <SortableColumnHeader
                               key={columnId}
@@ -1570,11 +1760,11 @@ export default function NotesPage() {
                 <p className="text-sm font-medium mb-2">Selected Items:</p>
                 <div className="flex flex-wrap gap-2">
                   {selectedRelatedItems.map((item, index) => (
-                    <Badge key={index} variant="secondary" className="gap-1" data-testid={`selected-related-${index}`}>
+                    <Badge key={`${item.type}:${item.id}`} variant="secondary" className="gap-1" data-testid={`selected-related-${index}`}>
                       {item.type}: {item.name}
                       <button
                         type="button"
-                        onClick={() => handleRemoveRelatedItem(item.id)}
+                        onClick={() => handleRemoveRelatedItem(item)}
                         className="ml-1 hover:text-destructive"
                         data-testid={`button-remove-related-${index}`}
                       >
@@ -1587,114 +1777,65 @@ export default function NotesPage() {
             )}
 
             <div className="border rounded-md max-h-80 overflow-y-auto">
-              {/* Campaigns (top level) */}
-              {filteredSelectableItems.filter(item => item.type === 'campaign').map((campaign, index) => {
-                const isSelected = selectedRelatedItems.some(i => i.id === campaign.id);
-                const isExpanded = expandedItems.includes(campaign.id);
-                
-                return (
-                  <div key={campaign.id}>
-                    <div
-                      className={`flex items-center justify-between p-3 border-b cursor-pointer hover:bg-muted/50 ${
-                        isSelected ? 'bg-muted' : ''
-                      }`}
-                      data-testid={`selectable-item-campaign-${index}`}
-                    >
-                      <div className="flex items-center gap-3 flex-1" onClick={() => handleToggleRelatedItem(campaign)}>
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => handleToggleRelatedItem(campaign)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <p className="text-sm font-medium">{campaign.name}</p>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleExpandItem(campaign.id);
-                        }}
-                        className="p-1 hover:bg-muted rounded"
+              {(() => {
+                const renderNode = (node: RelatedTreeNode, level: number): JSX.Element => {
+                  const key = `${node.type}:${node.id}`;
+                  const isSelected = selectedRelatedItems.some(i => i.id === node.id && i.type === node.type);
+                  const hasChildren = node.children.length > 0;
+                  const isExpanded = expandedItems.includes(key);
+                  const showChildren = hasChildren && (isExpanded || relatedSearchQuery.trim().length > 0);
+
+                  return (
+                    <div key={key}>
+                      <div
+                        className={`flex items-center justify-between p-3 border-b cursor-pointer hover:bg-muted/50 ${
+                          isSelected ? 'bg-muted' : ''
+                        }`}
+                        data-testid={`selectable-item-${node.type}-${key}`}
                       >
-                        <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                      </button>
-                    </div>
-                    
-                    {/* Ad Sets (when campaign expanded) */}
-                    {isExpanded && filteredSelectableItems.filter(item => item.type === 'adset').map((adset, adsetIdx) => {
-                      const adsetSelected = selectedRelatedItems.some(i => i.id === adset.id);
-                      const adsetExpanded = expandedItems.includes(adset.id);
-                      
-                      return (
-                        <div key={adset.id}>
-                          <div
-                            className={`flex items-center justify-between p-3 border-b cursor-pointer hover:bg-muted/50 ${
-                              adsetSelected ? 'bg-muted' : ''
-                            }`}
-                            style={{ paddingLeft: '32px' }}
-                            data-testid={`selectable-item-adset-${adsetIdx}`}
-                          >
-                            <div className="flex items-center gap-3 flex-1" onClick={() => handleToggleRelatedItem(adset)}>
-                              <Checkbox
-                                checked={adsetSelected}
-                                onCheckedChange={() => handleToggleRelatedItem(adset)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <p className="text-sm font-medium">{adset.name}</p>
-                            </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleExpandItem(adset.id);
-                              }}
-                              className="p-1 hover:bg-muted rounded"
-                            >
-                              <ChevronRight className={`w-4 h-4 transition-transform ${adsetExpanded ? 'rotate-90' : ''}`} />
-                            </button>
-                          </div>
-                          
-                          {/* Ads (when adset expanded) */}
-                          {adsetExpanded && filteredSelectableItems.filter(item => item.type === 'ad').map((ad, adIdx) => {
-                            const adSelected = selectedRelatedItems.some(i => i.id === ad.id);
-                            const adExpanded = expandedItems.includes(ad.id);
-                            
-                            return (
-                              <div key={ad.id}>
-                                <div
-                                  className={`flex items-center justify-between p-3 border-b cursor-pointer hover:bg-muted/50 ${
-                                    adSelected ? 'bg-muted' : ''
-                                  }`}
-                                  style={{ paddingLeft: '64px' }}
-                                  data-testid={`selectable-item-ad-${adIdx}`}
-                                >
-                                  <div className="flex items-center gap-3 flex-1" onClick={() => handleToggleRelatedItem(ad)}>
-                                    <Checkbox
-                                      checked={adSelected}
-                                      onCheckedChange={() => handleToggleRelatedItem(ad)}
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <p className="text-sm font-medium">{ad.name}</p>
-                                  </div>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleExpandItem(ad.id);
-                                    }}
-                                    className="p-1 hover:bg-muted rounded"
-                                  >
-                                    <ChevronRight className={`w-4 h-4 transition-transform ${adExpanded ? 'rotate-90' : ''}`} />
-                                  </button>
-                                </div>
-                                
-                                {/* TODO: Creatives (when ad expanded) - not yet in store */}
-                              </div>
-                            );
-                          })}
+                        <div
+                          className="flex items-center gap-3 flex-1"
+                          style={{ paddingLeft: `${level * 24}px` }}
+                          onClick={() => handleToggleRelatedItem({ type: node.type, id: node.id, name: node.name })}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleToggleRelatedItem({ type: node.type, id: node.id, name: node.name })}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <p className="text-sm font-medium">{node.name}</p>
                         </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
+
+                        {hasChildren ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExpandItem(key);
+                            }}
+                            className="p-1 hover:bg-muted rounded"
+                          >
+                            <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                          </button>
+                        ) : (
+                          <div className="w-6" />
+                        )}
+                      </div>
+
+                      {showChildren && node.children.map(child => renderNode(child, level + 1))}
+                    </div>
+                  );
+                };
+
+                if (filteredRelatedTree.length === 0) {
+                  return (
+                    <div className="p-4 text-sm text-muted-foreground">
+                      No items found
+                    </div>
+                  );
+                }
+
+                return filteredRelatedTree.map((node) => renderNode(node, 0));
+              })()}
             </div>
           </div>
           <DialogFooter>

@@ -8,6 +8,7 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { updateSelections } from "@/store/slices/reportsSlice";
 import { createReportThunk, updateReportThunk } from "@/store/slices/reportsThunks";
+import { generateSmartReportName } from "@/lib/generateSmartReportName";
 import { fetchAdAccounts } from "@/store/slices/accountsThunks";
 import { fetchCampaigns } from "@/store/slices/campaignsThunks";
 import { fetchAdSets } from "@/store/slices/adsetsThunks";
@@ -54,13 +55,19 @@ export default function SelectionPage() {
   const currentProject = useAppSelector(selectCurrentProject);
   const reports = useAppSelector(selectCurrentProjectReports);
   const currentReport = useAppSelector(selectCurrentReport);
-  const selections = currentReport?.selections || {
-    accounts: [],
-    campaigns: [],
-    adsets: [],
-    ads: [],
-    creatives: [],
-  };
+  
+  // Local selections state for new reports (before report is created)
+  const [localSelections, setLocalSelections] = useState({
+    accounts: [] as string[],
+    campaigns: [] as string[],
+    adsets: [] as string[],
+    ads: [] as string[],
+    creatives: [] as string[],
+  });
+  
+  // Use local selections when no report exists, otherwise use report selections
+  const selections = currentReport?.selections || localSelections;
+  
   const accounts = useAppSelector(selectAccounts);
   const accountsLoading = useAppSelector(selectAccountsLoading);
   const accountsError = useAppSelector(selectAccountsError);
@@ -97,6 +104,20 @@ export default function SelectionPage() {
     return hasCreatives && hasAds && hasAdSets && hasCampaigns && hasAccounts;
   }, [selections]);
 
+  // Smart report name generation - always generate for new report dialog
+  const smartReportName = useMemo(() => {
+    // Generate smart name based on selections
+    // Note: selections.accounts contains Facebook IDs (act_xxx), accounts.id may be UUID
+    // So we need to map by adAccountId for matching
+    const accountInfos = accounts.map(a => ({ 
+      id: a.adAccountId || a.id, // Use Facebook ID for matching
+      name: a.name || a.adAccountId || 'Account' 
+    }));
+    const existingNames = reports.map(r => r.name);
+    
+    return generateSmartReportName(selections, accountInfos, existingNames);
+  }, [selections, accounts, reports]);
+
   // Сохранение отчёта (обновление существующего или создание нового)
   const handleCreateReport = async (reportName: string) => {
     if (!currentProjectId || !workspaceId) return;
@@ -114,6 +135,9 @@ export default function SelectionPage() {
         'spend',
       ];
 
+      // Use current selections (from localSelections or currentReport.selections)
+      const selectionsToSave = selections;
+
       // Если уже есть отчёт — обновляем его, иначе создаём новый
       if (currentReport) {
         await dispatch(updateReportThunk({
@@ -121,7 +145,7 @@ export default function SelectionPage() {
           reportId: currentReport.id,
           updates: {
             name: reportName,
-            selections: selections,
+            selections: selectionsToSave,
             selectedMetrics: defaultMetrics,
           },
         })).unwrap();
@@ -136,8 +160,17 @@ export default function SelectionPage() {
           name: reportName,
           selectedMetrics: defaultMetrics,
           activeTab: 'campaigns',
-          selections: selections,
+          selections: selectionsToSave,
         })).unwrap();
+
+        // Clear local selections after report is created
+        setLocalSelections({
+          accounts: [],
+          campaigns: [],
+          adsets: [],
+          ads: [],
+          creatives: [],
+        });
 
         toast({
           title: "Report created",
@@ -382,25 +415,8 @@ export default function SelectionPage() {
       return;
     }
     
-    // Отчёт должен быть создан через кнопку — не создаём автоматически
-    if (!currentReport) {
-      toast({
-        title: 'No report selected',
-        description: 'Please create a report first using the "Create Report" button.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    const report = currentReport;
-
-    const currentSelections = report.selections ?? {
-      accounts: [],
-      campaigns: [],
-      adsets: [],
-      ads: [],
-      creatives: [],
-    };
+    // Calculate new selections with dependent clearing
+    const currentSelections = currentReport?.selections ?? localSelections;
     const newSelections = { ...currentSelections, [tabId]: ids };
     
     // Clear dependent selections when parent changes
@@ -419,6 +435,29 @@ export default function SelectionPage() {
     } else if (tabId === 'ads') {
       newSelections.creatives = [];
     }
+    
+    // If no report exists yet, just update local selections
+    if (!currentReport) {
+      setLocalSelections(newSelections);
+      
+      // Automatically open next column when selecting items
+      if (ids.length > 0) {
+        const nextColumn: Record<string, string> = {
+          'accounts': 'campaigns',
+          'campaigns': 'adsets',
+          'adsets': 'ads',
+          'ads': 'creatives'
+        };
+        
+        if (nextColumn[tabId]) {
+          setActiveColumn(nextColumn[tabId]);
+        }
+      }
+      return;
+    }
+
+    // Report exists - update Redux and server
+    const report = currentReport;
 
     dispatch(updateSelections({
       projectId: currentProjectId,
@@ -597,7 +636,7 @@ export default function SelectionPage() {
           selections={selections}
           onConfirm={handleCreateReport}
           isLoading={isCreatingReport}
-          defaultName={currentReport?.name || "New Report"}
+          defaultName={smartReportName}
         />
         
         <div className="flex-1 flex overflow-x-auto overflow-y-hidden min-w-0">

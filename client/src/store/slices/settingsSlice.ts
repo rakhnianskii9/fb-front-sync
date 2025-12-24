@@ -20,6 +20,7 @@ export interface UserSettings {
   lastSyncedAt: string | null;
   tokenExpiresAt: string | null;
   scopes: string[];
+  selectedPixelId?: string | null;
 }
 
 interface SettingsState {

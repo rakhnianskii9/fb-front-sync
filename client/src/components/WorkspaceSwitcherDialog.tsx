@@ -47,14 +47,18 @@ export function WorkspaceSwitcherDialog({ open, onOpenChange }: WorkspaceSwitche
       handleClose();
       return;
     }
-    dispatch(setActiveWorkspaceId(selectedWorkspaceId));
-    persistActiveWorkspaceId(selectedWorkspaceId);
+    // ВАЖНО: Сначала очистить state, потом менять workspaceId
+    // Это предотвращает показ проектов из старого workspace
     dispatch(resetProjectsState());
     dispatch(resetReportsState());
     dispatch(resetAccountsState());
     dispatch(clearCampaigns());
     dispatch(clearAdSets());
     dispatch(clearAds());
+    // Теперь меняем workspaceId - useEffect в компонентах загрузит новые данные
+    dispatch(setActiveWorkspaceId(selectedWorkspaceId));
+    persistActiveWorkspaceId(selectedWorkspaceId);
+    // Загрузка новых данных (также произойдёт через useEffect с activeWorkspaceId)
     dispatch(fetchProjects());
     dispatch(fetchAdAccounts());
     navigate("/projects");

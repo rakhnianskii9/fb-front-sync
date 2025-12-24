@@ -1,7 +1,20 @@
-// Типы для интеграции Kommo CRM
+// Types for Kommo provider domain + shared (CRM-level) wizard shapes.
 
-/** Шаги визарда настройки Kommo */
-export type KommoSetupStep = 'connect' | 'inbound' | 'fields' | 'events' | 'distribution' | 'review';
+import type {
+  CrmSetupStep,
+  CrmFieldMapping,
+  CrmEventTrigger,
+  CrmAssignmentType,
+  CrmDistributionRule,
+  CrmWeightedUser,
+  CrmScheduleRule,
+  CrmDistributionCondition,
+  CrmConditionField,
+  CrmConditionOperator,
+} from '../crm/types'
+
+/** Wizard steps (CRM-level, provider-agnostic). Kept as alias for backwards compatibility. */
+export type KommoSetupStep = CrmSetupStep
 
 /** Статус подключения к Kommo */
 export type KommoConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -87,110 +100,17 @@ export interface KommoFieldEnum {
   sort: number;
 }
 
-/** Маппинг Facebook CAPI параметра на Kommo поле */
-export interface KommoFieldMapping {
-  id: string;
-  capiField: string;
-  kommoFieldId: number;
-  kommoFieldName: string;
-  entityType: 'leads' | 'contacts' | 'companies';
-  isEnabled: boolean;
-  transformRule?: string;
-}
+/** CRM-level wizard shapes (aliases). */
+export type KommoFieldMapping = CrmFieldMapping
+export type KommoEventTrigger = CrmEventTrigger
 
-/** Триггер события для отправки в CAPI */
-export interface KommoEventTrigger {
-  id: string;
-  name: string;
-  description: string;
-  pipelineId: number;
-  statusId: number;
-  capiEventName: string;
-  isEnabled: boolean;
-  eventValue?: number;
-  eventCurrency?: string;
-}
-
-/** Типы распределения лидов */
-export type KommoAssignmentType = 
-  | 'default'        // По умолчанию — один менеджер
-  | 'round-robin'    // Равномерное — по очереди
-  | 'random'         // Рандомное назначение
-  | 'weighted'       // По % от потока
-  | 'workload'       // По загрузке (меньше открытых сделок)
-  | 'schedule'       // По расписанию (рабочие часы)
-  | 'condition';     // По условиям (UTM и др.)
-
-/** Правило распределения лидов */
-export interface KommoDistributionRule {
-  id: string;
-  name: string;
-  assignmentType: KommoAssignmentType;
-  isEnabled: boolean;
-  
-  // Для default — один менеджер
-  defaultUserId?: number;
-  
-  // Для round-robin, random, workload — список менеджеров
-  assignedUserIds?: number[];
-  
-  // Для weighted — менеджеры с весами
-  weightedUsers?: KommoWeightedUser[];
-  
-  // Для schedule — расписание по менеджерам
-  scheduleRules?: KommoScheduleRule[];
-  
-  // Для condition — условия по UTM и др.
-  conditions?: KommoDistributionCondition[];
-  fallbackUserId?: number; // Если условия не сработали
-}
-
-/** Менеджер с весом для weighted распределения */
-export interface KommoWeightedUser {
-  userId: number;
-  weight: number; // % от потока (0-100)
-}
-
-/** Расписание для schedule распределения */
-export interface KommoScheduleRule {
-  userId: number;
-  weekdays: number[];     // 0-6 (Вс-Сб)
-  timeFrom: string;       // "09:00"
-  timeTo: string;         // "18:00"
-  timezone: string;       // "Europe/Moscow"
-}
-
-/** Условие для condition распределения */
-export interface KommoDistributionCondition {
-  id: string;
-  field: KommoConditionField;
-  operator: KommoConditionOperator;
-  value: string;
-  assignUserId: number;   // Кому назначать при совпадении
-}
-
-/** Поля для условий */
-export type KommoConditionField = 
-  | 'utm_source'
-  | 'utm_medium' 
-  | 'utm_campaign'
-  | 'utm_content'
-  | 'utm_term'
-  | 'country'
-  | 'city'
-  | 'lead_source'
-  | 'form_name';
-
-/** Операторы сравнения */
-export type KommoConditionOperator = 
-  | 'equals'
-  | 'not_equals'
-  | 'contains'
-  | 'not_contains'
-  | 'starts_with'
-  | 'ends_with'
-  | 'is_empty'
-  | 'is_not_empty';
+export type KommoAssignmentType = CrmAssignmentType
+export type KommoDistributionRule = CrmDistributionRule
+export type KommoWeightedUser = CrmWeightedUser
+export type KommoScheduleRule = CrmScheduleRule
+export type KommoDistributionCondition = CrmDistributionCondition
+export type KommoConditionField = CrmConditionField
+export type KommoConditionOperator = CrmConditionOperator
 
 /** Состояние визарда настройки */
 export interface KommoSetupState {
@@ -208,32 +128,30 @@ export interface KommoSetupState {
 
 /** CAPI параметры доступные для маппинга */
 export const CAPI_MAPPABLE_FIELDS = [
-  { id: 'email', name: 'Email', description: 'Email пользователя (SHA256)' },
-  { id: 'phone', name: 'Phone', description: 'Телефон пользователя (SHA256)' },
-  { id: 'firstName', name: 'First Name', description: 'Имя' },
-  { id: 'lastName', name: 'Last Name', description: 'Фамилия' },
-  { id: 'city', name: 'City', description: 'Город' },
-  { id: 'country', name: 'Country', description: 'Страна' },
-  { id: 'zipCode', name: 'Zip Code', description: 'Почтовый индекс' },
-  { id: 'externalId', name: 'External ID', description: 'Внешний идентификатор' },
-  { id: 'fbclid', name: 'Facebook Click ID', description: 'ID клика Facebook' },
-  { id: 'fbp', name: 'Facebook Browser ID', description: 'ID браузера Facebook' },
-  { id: 'fbc', name: 'Facebook Cookie', description: 'Cookie Facebook' },
-  { id: 'utm_source', name: 'UTM Source', description: 'Источник UTM' },
-  { id: 'utm_medium', name: 'UTM Medium', description: 'Канал UTM' },
-  { id: 'utm_campaign', name: 'UTM Campaign', description: 'Кампания UTM' },
-  { id: 'utm_content', name: 'UTM Content', description: 'Контент UTM' },
-  { id: 'utm_term', name: 'UTM Term', description: 'Ключевое слово UTM' },
+  { id: 'email', name: 'Email', description: 'User email (SHA256)' },
+  { id: 'phone', name: 'Phone', description: 'User phone (SHA256)' },
+  { id: 'firstName', name: 'First Name', description: 'First name' },
+  { id: 'lastName', name: 'Last Name', description: 'Last name' },
+  { id: 'city', name: 'City', description: 'City' },
+  { id: 'country', name: 'Country', description: 'Country' },
+  { id: 'zipCode', name: 'Zip Code', description: 'ZIP / postal code' },
+  { id: 'utm_source', name: 'UTM Source', description: 'UTM source' },
+  { id: 'utm_medium', name: 'UTM Medium', description: 'UTM medium' },
+  { id: 'utm_campaign', name: 'UTM Campaign', description: 'UTM campaign' },
+  { id: 'utm_content', name: 'UTM Content', description: 'UTM content' },
+  { id: 'utm_term', name: 'UTM Term', description: 'UTM term' },
+  { id: 'ip_geo_country', name: 'IP Geo Country', description: 'Country (from IP / headers)' },
+  { id: 'ip_geo_city', name: 'IP Geo City', description: 'City (from IP / headers)' },
 ] as const;
 
 /** Стандартные события CAPI для триггеров */
 export const CAPI_EVENTS = [
-  { id: 'Lead', name: 'Lead', description: 'Новый лид' },
-  { id: 'Contact', name: 'Contact', description: 'Контакт' },
-  { id: 'Schedule', name: 'Schedule', description: 'Назначена встреча' },
-  { id: 'Purchase', name: 'Purchase', description: 'Покупка (закрытая сделка)' },
-  { id: 'CompleteRegistration', name: 'Complete Registration', description: 'Регистрация завершена' },
-  { id: 'SubmitApplication', name: 'Submit Application', description: 'Заявка подана' },
-  { id: 'StartTrial', name: 'Start Trial', description: 'Начат пробный период' },
-  { id: 'Subscribe', name: 'Subscribe', description: 'Подписка оформлена' },
+  { id: 'Lead', name: 'Lead', description: 'New lead' },
+  { id: 'Contact', name: 'Contact', description: 'Contact' },
+  { id: 'Schedule', name: 'Schedule', description: 'Meeting scheduled' },
+  { id: 'Purchase', name: 'Purchase', description: 'Purchase (closed deal)' },
+  { id: 'CompleteRegistration', name: 'Complete Registration', description: 'Registration completed' },
+  { id: 'SubmitApplication', name: 'Submit Application', description: 'Application submitted' },
+  { id: 'StartTrial', name: 'Start Trial', description: 'Trial started' },
+  { id: 'Subscribe', name: 'Subscribe', description: 'Subscription started' },
 ] as const;

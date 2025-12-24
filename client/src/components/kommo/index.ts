@@ -1,7 +1,7 @@
 // Экспорт всех компонентов модуля Kommo
 export * from './types';
 export { SetupSteps } from './SetupSteps';
-export { ConnectStep } from './ConnectStep';
+export { ConnectStep, type KommoCredentials } from './ConnectStep';
 export { InboundStep } from './InboundStep';
 export { FieldsStep } from './FieldsStep';
 export { EventsStep } from './EventsStep';

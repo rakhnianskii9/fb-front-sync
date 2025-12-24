@@ -56,6 +56,8 @@ export function ReviewStep({
   onActivate,
   onBack,
 }: ReviewStepProps) {
+  const KOMMO_LOGO_SRC = `${import.meta.env.BASE_URL}images/kommo.png`;
+
   // Получаем названия по ID
   const getStatusName = (pipelineId: number, statusId: number) => {
     const pipeline = pipelines.find(p => p.id === pipelineId);
@@ -108,7 +110,7 @@ export function ReviewStep({
           <div className="flex items-center gap-3 mt-1">
             <div className="bg-muted p-1.5 rounded-lg border border-border shrink-0">
               <img 
-                src="/fb/images/kommo.png" 
+                src={KOMMO_LOGO_SRC}
                 alt="Kommo" 
                 className="size-9 rounded-lg object-contain"
               />

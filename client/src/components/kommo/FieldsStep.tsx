@@ -1,31 +1,29 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ArrowRight, CirclePlus, Mail, Phone, DollarSign, Plus, ShoppingCart, UserPlus, Calendar, CreditCard, Trash2 } from "lucide-react";
+import { ArrowRight, CirclePlus, Plus, ShoppingCart, UserPlus, Calendar, CreditCard, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { KommoCustomField, KommoFieldMapping } from "./types";
+import { CAPI_MAPPABLE_FIELDS } from "./types";
 
-// Шаблоны событий
-const EVENT_TEMPLATES = [
+// Built-in templates shown in the left rail.
+const DEFAULT_EVENT_TEMPLATES = [
   { id: 'purchase', name: 'Purchase', icon: ShoppingCart, isStandard: true },
   { id: 'lead', name: 'Lead', icon: UserPlus, isStandard: true },
   { id: 'schedule', name: 'Schedule', icon: Calendar, isStandard: true },
   { id: 'add_payment_info', name: 'Add Payment Info', icon: CreditCard, isStandard: true },
 ];
 
-// Примеры маппингов для демонстрации
-const DEFAULT_MAPPINGS = [
-  { id: '1', sourceField: 'Customer Email', sourceIcon: Mail, fbParam: 'em (email)', paramColor: 'blue' },
-  { id: '2', sourceField: 'Phone Number', sourceIcon: Phone, fbParam: 'ph (phone)', paramColor: 'blue' },
-  { id: '3', sourceField: 'Deal Value', sourceIcon: DollarSign, fbParam: 'value', paramColor: 'purple' },
-];
 
 interface FieldsStepProps {
+  workspaceId?: string;
   customFields: KommoCustomField[];
   mappings: KommoFieldMapping[];
   onAddMapping: () => void;
   onRemoveMapping: (mappingId: string) => void;
   onUpdateMapping: (mappingId: string, updates: Partial<KommoFieldMapping>) => void;
   onToggleMapping: (mappingId: string, enabled: boolean) => void;
+  onAutoMap?: () => void;
+  onRefreshMetadata?: () => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -35,20 +33,86 @@ interface FieldsStepProps {
  * Настройка событий и маппинг полей CRM на Facebook параметры
  */
 export function FieldsStep({
+  workspaceId,
   customFields,
   mappings,
   onAddMapping,
   onRemoveMapping,
   onUpdateMapping,
   onToggleMapping,
+  onAutoMap,
+  onRefreshMetadata,
   onNext,
   onBack,
 }: FieldsStepProps) {
   const [selectedEvent, setSelectedEvent] = useState('purchase');
-  const [triggerType, setTriggerType] = useState<'url' | 'pipeline'>('url');
-  const [urlValue, setUrlValue] = useState('/thank-you/order-confirmed');
+  const [eventTemplates, setEventTemplates] = useState(DEFAULT_EVENT_TEMPLATES);
 
-  const selectedTemplate = EVENT_TEMPLATES.find(e => e.id === selectedEvent);
+  const selectedTemplate = eventTemplates.find(e => e.id === selectedEvent);
+
+  const availableFields = Array.isArray(customFields) ? customFields : [];
+
+  const canCreateKommoCustomField = Boolean(workspaceId);
+  const getCreateSpec = (capiField: string) => {
+    // Only fields that are actually persisted to KommoConfig.fieldMapping.
+    // (email/phone are handled via Kommo system field_code fallback, so we don't create those here.)
+    const leadFields: Record<string, { name: string }> = {
+      utm_source: { name: 'utm_source' },
+      utm_medium: { name: 'utm_medium' },
+      utm_campaign: { name: 'utm_campaign' },
+      utm_content: { name: 'utm_content' },
+      utm_term: { name: 'utm_term' },
+      ip_geo_country: { name: 'ip_geo_country' },
+      ip_geo_city: { name: 'ip_geo_city' },
+    };
+
+    if (leadFields[capiField]) {
+      return { entityType: 'leads' as const, name: leadFields[capiField].name };
+    }
+    return null;
+  };
+
+  const getStandardTargetLabel = (capiField: string) => {
+    if (capiField === 'firstName') return 'Contact → First name (standard)';
+    if (capiField === 'lastName') return 'Contact → Last name (standard)';
+    return null;
+  };
+
+  const handleCreateField = async (mappingId: string, capiField: string) => {
+    const spec = getCreateSpec(capiField);
+    if (!spec || !workspaceId) return;
+
+    const resp = await fetch('/api/v1/kommo/custom-fields', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-request-from': 'internal',
+      },
+      body: JSON.stringify({
+        workspaceId,
+        entityType: spec.entityType,
+        name: spec.name,
+        type: 'text',
+      }),
+    });
+
+    if (!resp.ok) {
+      const raw = await resp.json().catch(() => null);
+      throw new Error(raw?.error || 'Failed to create Kommo field');
+    }
+
+    const data = await resp.json().catch(() => null);
+    const created = data?.field;
+    if (created?.id) {
+      onUpdateMapping(mappingId, {
+        providerFieldId: Number(created.id),
+        providerFieldName: created.name || spec.name,
+        entityType: spec.entityType,
+      });
+      await onRefreshMetadata?.();
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
@@ -71,7 +135,7 @@ export function FieldsStep({
           </h4>
           
           <div className="space-y-1">
-            {EVENT_TEMPLATES.map((event) => {
+            {eventTemplates.map((event) => {
               const Icon = event.icon;
               const isSelected = selectedEvent === event.id;
               
@@ -100,7 +164,18 @@ export function FieldsStep({
 
           {/* Add Custom Event */}
           <div className="mt-auto pt-3">
-            <button className="w-full py-2.5 border border-dashed border-border rounded-lg text-body-sm text-muted-foreground hover:text-primary hover:border-primary transition-colors flex items-center justify-center gap-1.5 bg-background">
+            <button
+              type="button"
+              onClick={() => {
+                const id = `custom_${Date.now()}`;
+                setEventTemplates((prev) => [
+                  ...prev,
+                  { id, name: 'Custom Event', icon: CirclePlus, isStandard: false },
+                ]);
+                setSelectedEvent(id);
+              }}
+              className="w-full py-2.5 border border-dashed border-border rounded-lg text-body-sm text-muted-foreground hover:text-primary hover:border-primary transition-colors flex items-center justify-center gap-1.5 bg-background"
+            >
               <Plus className="w-3.5 h-3.5" />
               Add Custom Event
             </button>
@@ -126,75 +201,18 @@ export function FieldsStep({
 
           {/* Sections */}
           <div className="flex flex-col gap-6">
-            {/* Section 1: Trigger Logic */}
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="flex items-center justify-center size-5 rounded-md bg-primary/10 text-primary text-body-sm font-medium">1</span>
-                <h3 className="text-h3">Trigger Logic</h3>
-              </div>
-              
-              <div className="p-4 rounded-xl border border-card-border bg-muted/30">
-                <div className="flex flex-col gap-4">
-                  {/* Radio buttons */}
-                  <div className="flex items-center gap-4 text-body font-medium">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="trigger_type"
-                        checked={triggerType === 'url'}
-                        onChange={() => setTriggerType('url')}
-                        className="text-primary focus:ring-primary"
-                      />
-                      <span>URL Rules</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="trigger_type"
-                        checked={triggerType === 'pipeline'}
-                        onChange={() => setTriggerType('pipeline')}
-                        className="text-primary focus:ring-primary"
-                      />
-                      <span>CRM Pipeline Stage</span>
-                    </label>
-                  </div>
-
-                  {/* URL input */}
-                  <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-                    <select className="h-9 rounded-md border border-input bg-background text-body min-w-32 px-3 focus:border-primary focus:ring-1 focus:ring-primary">
-                      <option>Contains</option>
-                      <option>Equals</option>
-                      <option>Does not contain</option>
-                    </select>
-                    <div className="flex-1 w-full">
-                      <input
-                        type="text"
-                        value={urlValue}
-                        onChange={(e) => setUrlValue(e.target.value)}
-                        placeholder="e.g. /thank-you"
-                        className="w-full h-9 rounded-md border border-input bg-background text-body px-3 placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Add rule condition */}
-                  <div className="flex justify-end">
-                    <button className="text-body-sm font-medium text-primary hover:underline transition-colors">
-                      + Add Rule Condition
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {/* Section 2: Parameter Mapping */}
+            {/* Section 1: Parameter Mapping */}
             <section>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="flex items-center justify-center size-5 rounded-md bg-primary/10 text-primary text-body-sm font-medium">2</span>
+                  <span className="flex items-center justify-center size-5 rounded-md bg-primary/10 text-primary text-body-sm font-medium">1</span>
                   <h3 className="text-h3">Parameter Mapping</h3>
                 </div>
-                <button className="text-body-sm font-medium text-primary hover:text-primary/80 transition-colors">
+                <button
+                  type="button"
+                  onClick={() => onAutoMap?.()}
+                  className="text-body-sm font-medium text-primary hover:text-primary/80 transition-colors"
+                >
                   Auto-map fields
                 </button>
               </div>
@@ -204,52 +222,124 @@ export function FieldsStep({
                 <table className="w-full text-body text-left">
                   <thead className="bg-muted text-muted-foreground font-medium border-b border-border">
                     <tr>
-                      <th className="p-2.5 pl-3">Source Field (CRM)</th>
+                      <th className="p-2.5 pl-3">Facebook Parameter</th>
                       <th className="p-2.5 w-8 text-center">
                         <ArrowRight className="w-3.5 h-3.5 inline" />
                       </th>
-                      <th className="p-2.5">Facebook Parameter</th>
+                      <th className="p-2.5">Kommo Field (CRM)</th>
                       <th className="p-2.5 w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border bg-background">
-                    {DEFAULT_MAPPINGS.map((mapping) => {
-                      const Icon = mapping.sourceIcon;
-                      return (
-                        <tr key={mapping.id} className="group hover:bg-muted/50 transition-colors">
-                          <td className="p-2.5 pl-3">
-                            <div className="flex items-center gap-2 text-foreground">
-                              <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-                              {mapping.sourceField}
-                            </div>
-                          </td>
-                          <td className="text-center text-muted-foreground">
-                            <ArrowRight className="w-3.5 h-3.5 inline" />
-                          </td>
-                          <td className="p-2.5">
-                            <span className={cn(
-                              "font-mono text-body-sm border rounded-md px-1.5 py-0.5",
-                              mapping.paramColor === 'blue' 
-                                ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-800"
-                                : "bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-100 dark:border-purple-800"
-                            )}>
-                              {mapping.fbParam}
-                            </span>
-                          </td>
-                          <td className="p-2.5 text-center">
-                            <button className="text-muted-foreground hover:text-destructive transition-colors">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {mappings.length > 0 ? (
+                      mappings.map((mapping) => {
+                        const selectedCapi = CAPI_MAPPABLE_FIELDS.find(f => f.id === mapping.capiField);
+                        const capiLabel = selectedCapi ? `${selectedCapi.name}` : (mapping.capiField || 'Not selected');
+                        const hasCoreMatchQualityParam = ['email', 'phone'].includes(mapping.capiField);
+
+                        return (
+                          <tr key={mapping.id} className="group hover:bg-muted/50 transition-colors">
+                            <td className="p-2.5 pl-3">
+                              <select
+                                value={mapping.capiField || ""}
+                                onChange={(e) => onUpdateMapping(mapping.id, { capiField: e.target.value })}
+                                className="h-9 w-full rounded-md border border-input bg-background text-body px-3 focus:border-primary focus:ring-1 focus:ring-primary"
+                              >
+                                <option value="">Select Facebook parameter...</option>
+                                {CAPI_MAPPABLE_FIELDS.map((field) => (
+                                  <option key={field.id} value={field.id}>
+                                    {field.name}
+                                  </option>
+                                ))
+                                }
+                              </select>
+                            </td>
+                            <td className="text-center text-muted-foreground">
+                              <ArrowRight className="w-3.5 h-3.5 inline" />
+                            </td>
+                            <td className="p-2.5">
+                              {getStandardTargetLabel(mapping.capiField) ? (
+                                <div className="h-9 w-full rounded-md border border-input bg-muted/30 text-body px-3 flex items-center text-muted-foreground">
+                                  {getStandardTargetLabel(mapping.capiField)}
+                                </div>
+                              ) : (
+                                <select
+                                  value={mapping.providerFieldId ? String(mapping.providerFieldId) : ""}
+                                  onChange={(e) => {
+                                    const value = Number(e.target.value);
+                                    const field = availableFields.find(f => f.id === value);
+                                    onUpdateMapping(mapping.id, {
+                                      providerFieldId: value,
+                                      providerFieldName: field?.name || "",
+                                      entityType: (field?.entityType || mapping.entityType) as any,
+                                    });
+                                  }}
+                                  className="h-9 w-full rounded-md border border-input bg-background text-body px-3 focus:border-primary focus:ring-1 focus:ring-primary"
+                                >
+                                  <option value="">Select Kommo field...</option>
+                                  {availableFields.map((field) => (
+                                    <option key={field.id} value={String(field.id)}>
+                                      {field.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                              {!!mapping.capiField && (
+                                <div className="mt-1">
+                                  <span
+                                    className={cn(
+                                      "inline-flex font-mono text-body-sm border rounded-md px-1.5 py-0.5",
+                                      hasCoreMatchQualityParam
+                                        ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-800"
+                                        : "bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-100 dark:border-purple-800"
+                                    )}
+                                  >
+                                    {capiLabel}
+                                  </span>
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-2.5 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                {!!getCreateSpec(mapping.capiField) && !mapping.providerFieldId && canCreateKommoCustomField && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void handleCreateField(mapping.id, mapping.capiField);
+                                    }}
+                                    className="text-body-sm font-medium text-primary hover:text-primary/80 transition-colors"
+                                  >
+                                    Create
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => onRemoveMapping(mapping.id)}
+                                  className="text-muted-foreground hover:text-destructive transition-colors"
+                                  aria-label="Remove mapping"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-center text-muted-foreground text-body-sm" colSpan={4}>
+                          No mappings yet. Click "Map Field" to add one.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
 
                 {/* Add mapping button */}
                 <div className="p-2.5 bg-muted/30 border-t border-border">
-                  <button className="flex items-center gap-1.5 text-body-sm text-muted-foreground hover:text-primary transition-colors">
+                  <button
+                    onClick={onAddMapping}
+                    className="flex items-center gap-1.5 text-body-sm text-muted-foreground hover:text-primary transition-colors"
+                  >
                     <CirclePlus className="w-3.5 h-3.5" />
                     Map Field
                   </button>

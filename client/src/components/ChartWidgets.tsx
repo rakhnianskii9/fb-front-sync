@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, memo } from "react";
+import { useState, useMemo, useEffect, memo, useRef, useCallback } from "react";
 import {
   LineChart,
   Line,
@@ -71,6 +71,10 @@ interface BaseChartProps {
   showComparison?: boolean;
   warning?: string;
   warningReason?: string;
+  // Brush range from Redux - for instant responsiveness
+  initialBrushStart?: number;
+  initialBrushEnd?: number;
+  onBrushChange?: (startIndex: number, endIndex: number) => void;
 }
 
 interface PieChartProps {
@@ -89,6 +93,9 @@ function LineChartWidgetInner({
   showComparison = false,
   warning,
   warningReason,
+  initialBrushStart,
+  initialBrushEnd,
+  onBrushChange,
 }: BaseChartProps) {
   const [refAreaLeft, setRefAreaLeft] = useState<string>('');
   const [refAreaRight, setRefAreaRight] = useState<string>('');
@@ -98,17 +105,49 @@ function LineChartWidgetInner({
   // Показывать Brush только для больших датасетов
   const showBrush = data.length > BRUSH_THRESHOLD;
   
-  // Инициализация Brush — показываем последние N точек для больших датасетов
-  const initialEndIndex = data.length - 1;
-  const initialStartIndex = showBrush 
-    ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE)
-    : 0;
+  // Инициализация Brush — используем значения из Redux если есть, иначе дефолты
+  const getInitialStartIndex = () => {
+    if (initialBrushStart !== undefined && initialBrushStart >= 0 && initialBrushStart < data.length) {
+      return initialBrushStart;
+    }
+    return showBrush ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE) : 0;
+  };
   
-  const [brushStartIndex, setBrushStartIndex] = useState(initialStartIndex);
-  const [brushEndIndex, setBrushEndIndex] = useState(initialEndIndex);
+  const getInitialEndIndex = () => {
+    if (initialBrushEnd !== undefined && initialBrushEnd >= 0 && initialBrushEnd < data.length) {
+      return initialBrushEnd;
+    }
+    return data.length - 1;
+  };
   
-  // Обновляем при изменении данных
+  const [brushStartIndex, setBrushStartIndex] = useState(getInitialStartIndex);
+  const [brushEndIndex, setBrushEndIndex] = useState(getInitialEndIndex);
+  
+  // Track if user is dragging to prevent data-change resets
+  const isDraggingRef = useRef(false);
+  const dataLengthRef = useRef(data.length);
+  
+  // Sync with Redux values when they change (e.g., on report switch)
   useEffect(() => {
+    if (initialBrushStart !== undefined && initialBrushEnd !== undefined) {
+      if (initialBrushStart >= 0 && initialBrushStart < data.length &&
+          initialBrushEnd >= 0 && initialBrushEnd < data.length &&
+          !isDraggingRef.current) {
+        setBrushStartIndex(initialBrushStart);
+        setBrushEndIndex(initialBrushEnd);
+      }
+    }
+  }, [initialBrushStart, initialBrushEnd, data.length]);
+  
+  // Обновляем при изменении данных, но только если не перетаскиваем
+  useEffect(() => {
+    // Skip if data length hasn't changed
+    if (dataLengthRef.current === data.length) return;
+    dataLengthRef.current = data.length;
+    
+    // Don't reset during drag
+    if (isDraggingRef.current) return;
+    
     const newEndIndex = data.length - 1;
     const newStartIndex = showBrush 
       ? Math.max(0, data.length - DEFAULT_VIEWPORT_SIZE)
@@ -169,31 +208,85 @@ function LineChartWidgetInner({
 
   const viewportSize = brushEndIndex - brushStartIndex;
   
-  const handleBrushLeft = () => {
+  const handleBrushLeft = useCallback(() => {
     const step = Math.max(1, Math.floor(viewportSize / 5));
     const newStart = Math.max(0, brushStartIndex - step);
-    const newEnd = newStart + viewportSize;
+    const newEnd = Math.min(newStart + viewportSize, data.length - 1);
     setBrushStartIndex(newStart);
-    setBrushEndIndex(Math.min(newEnd, data.length - 1));
-  };
+    setBrushEndIndex(newEnd);
+    // Save to Redux for persistence
+    onBrushChange?.(newStart, newEnd);
+  }, [viewportSize, brushStartIndex, data.length, onBrushChange]);
 
-  const handleBrushRight = () => {
+  const handleBrushRight = useCallback(() => {
     const step = Math.max(1, Math.floor(viewportSize / 5));
     const newEnd = Math.min(data.length - 1, brushEndIndex + step);
     const newStart = Math.max(0, newEnd - viewportSize);
     setBrushStartIndex(newStart);
     setBrushEndIndex(newEnd);
-  };
+    // Save to Redux for persistence
+    onBrushChange?.(newStart, newEnd);
+  }, [viewportSize, brushEndIndex, data.length, onBrushChange]);
 
-  const handleBrushChange = (brushData: any) => {
-    if (brushData && brushData.startIndex !== undefined && brushData.endIndex !== undefined) {
-      setBrushStartIndex(brushData.startIndex);
-      setBrushEndIndex(brushData.endIndex);
+  // Throttled brush change handler to prevent excessive re-renders
+  const lastBrushUpdateRef = useRef(0);
+  const pendingBrushRef = useRef<{startIndex: number, endIndex: number} | null>(null);
+  
+  const handleBrushChange = useCallback((brushData: any) => {
+    if (!brushData || brushData.startIndex === undefined || brushData.endIndex === undefined) {
+      isDraggingRef.current = false;
+      return;
     }
-  };
+    
+    isDraggingRef.current = true;
+    
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastBrushUpdateRef.current;
+    
+    // Throttle updates to max 60fps (16ms)
+    if (timeSinceLastUpdate < 16) {
+      pendingBrushRef.current = { startIndex: brushData.startIndex, endIndex: brushData.endIndex };
+      return;
+    }
+    
+    lastBrushUpdateRef.current = now;
+    pendingBrushRef.current = null;
+    
+    setBrushStartIndex(brushData.startIndex);
+    setBrushEndIndex(brushData.endIndex);
+  }, []);
+  
+  // Apply pending brush update when drag ends and save to Redux
+  useEffect(() => {
+    const handleMouseUp = () => {
+      let finalStart = brushStartIndex;
+      let finalEnd = brushEndIndex;
+      
+      if (pendingBrushRef.current) {
+        finalStart = pendingBrushRef.current.startIndex;
+        finalEnd = pendingBrushRef.current.endIndex;
+        setBrushStartIndex(finalStart);
+        setBrushEndIndex(finalEnd);
+        pendingBrushRef.current = null;
+      }
+      
+      // Save final position to Redux when drag ends
+      if (isDraggingRef.current) {
+        onBrushChange?.(finalStart, finalEnd);
+      }
+      
+      // Delay clearing isDragging to prevent immediate data-change reset
+      setTimeout(() => {
+        isDraggingRef.current = false;
+      }, 100);
+    };
+    
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, [brushStartIndex, brushEndIndex, onBrushChange]);
 
   return (
-    <div className="h-full w-full relative flex flex-col">
+    <div className="h-full w-full min-h-[16rem] relative flex flex-col">
       {warning && <ChartWarning message={warning} reason={warningReason} />}
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
@@ -401,7 +494,7 @@ function BarChartWidgetInner({
   }
 
   return (
-    <div className="h-full w-full relative flex flex-col">
+    <div className="h-full w-full min-h-[16rem] relative flex flex-col">
       {warning && <ChartWarning message={warning} reason={warningReason} />}
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
@@ -580,7 +673,7 @@ function AreaChartWidgetInner({
   }
 
   return (
-    <div className="h-full w-full relative flex flex-col">
+    <div className="h-full w-full min-h-[16rem] relative flex flex-col">
       {warning && <ChartWarning message={warning} reason={warningReason} />}
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
@@ -870,7 +963,7 @@ function MixedChartWidgetInner({
   }
 
   return (
-    <div className="h-full w-full relative flex flex-col">
+    <div className="h-full w-full min-h-[16rem] relative flex flex-col">
       {warning && <ChartWarning message={warning} reason={warningReason} />}
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">

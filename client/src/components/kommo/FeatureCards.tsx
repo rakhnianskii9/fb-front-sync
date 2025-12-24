@@ -13,22 +13,22 @@ export function FeatureCards({ className }: FeatureCardsProps) {
   const features = [
     {
       icon: RefreshCw,
-      title: "Воронки и статусы",
-      description: "События обновляются мгновенно на обеих платформах.",
+      title: "Pipelines & statuses",
+      description: "Events are synced instantly across both platforms.",
       color: "text-primary",
       bgColor: "bg-primary/10",
     },
     {
       icon: Users,
-      title: "Пользователи (менеджеры)",
-      description: "Контролируйте, какие лиды импортируются на основе этапов воронки.",
+      title: "Users (managers)",
+      description: "Control which leads are imported based on pipeline stages.",
       color: "text-chart-2",
       bgColor: "bg-chart-2/10",
     },
     {
       icon: History,
-      title: "Кастомные поля",
-      description: "Отслеживайте все действия синхронизации и ошибки легко.",
+      title: "Custom fields",
+      description: "Track all sync actions and errors easily.",
       color: "text-chart-3",
       bgColor: "bg-chart-3/10",
     },

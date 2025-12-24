@@ -190,15 +190,15 @@ export const startSyncThunk = createAsyncThunk<
 // Расширение диапазона данных
 export const extendRangeThunk = createAsyncThunk<
   SyncStatusResult,
-  { projectId: string; reportId: string; configId: string; targetDays: number },
+  { projectId: string; reportId: string; targetDays: number; configId?: string },
   { rejectValue: string }
->('reports/extendRange', async ({ projectId, reportId, configId, targetDays }, { getState, rejectWithValue }) => {
+>('reports/extendRange', async ({ projectId, reportId, targetDays, configId }, { getState, rejectWithValue }) => {
   try {
     const workspaceId = getWorkspaceId(getState);
-    // Запускаем расширение
+    // Запускаем расширение (configId опционален — бэкенд получит его сам)
     await fbAdsApi.reports.extendRange(reportId, {
       workspaceId,
-      configId,
+      ...(configId && { configId }),
       targetDays
     });
     // Возвращаем начальный статус extending (реальный статус будет через polling)

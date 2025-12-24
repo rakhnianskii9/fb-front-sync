@@ -64,7 +64,7 @@ const syncStatusSlice = createSlice({
         state.error =
           typeof action.payload === 'string'
             ? action.payload
-            : action.error.message || 'Не удалось получить статус синхронизации';
+            : action.error.message || 'Failed to get sync status';
       });
   },
 });

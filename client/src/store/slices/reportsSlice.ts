@@ -26,6 +26,9 @@ export interface ChartSlotConfig {
   showLegend: boolean;
   showGrid: boolean;
   chartType?: ChartType;
+  // Brush range for viewport - stored to preserve user's zoom/scroll
+  brushStartIndex?: number;
+  brushEndIndex?: number;
 }
 
 export interface MetricCardConfig {
@@ -64,6 +67,7 @@ export interface Report {
   tags: string[];
   dateFrom?: string | null;
   dateTo?: string | null;
+  attribution?: string; // Attribution window (7d_click_1d_view, 28d_click_1d_view, etc.)
   chartSlots?: ChartSlotConfig[];
   metricCards?: MetricCardConfig[];
   visibleChartSlots?: number[]; // Indices of visible charts [0, 1, 2]
@@ -198,6 +202,24 @@ const reportsSlice = createSlice({
         );
         report.updatedAt = new Date().toISOString();
       }
+    },
+    updateChartBrushRange: (state, action: PayloadAction<{
+      projectId: string;
+      reportId: string;
+      slotIndex: number;
+      brushStartIndex: number;
+      brushEndIndex: number;
+    }>) => {
+      const { projectId, reportId, slotIndex, brushStartIndex, brushEndIndex } = action.payload;
+      const report = state.reports[projectId]?.find(r => r.id === reportId);
+      if (report && report.chartSlots) {
+        const slot = report.chartSlots.find(s => s.slotIndex === slotIndex);
+        if (slot) {
+          slot.brushStartIndex = brushStartIndex;
+          slot.brushEndIndex = brushEndIndex;
+        }
+      }
+      // Note: No updatedAt change - brush range is transient UI state, not persisted to backend
     },
     updateMetricCards: (state, action: PayloadAction<{
       projectId: string;
@@ -408,6 +430,13 @@ const reportsSlice = createSlice({
       .addCase(extendRangeThunk.pending, (state, action) => {
         const { reportId } = action.meta.arg;
         state.syncStatusLoading[reportId] = true;
+        // Immediately set status to 'extending' so UI shows loading state
+        for (const projectReports of Object.values(state.reports)) {
+          const report = projectReports.find(r => r.id === reportId);
+          if (report) {
+            report.status = 'extending';
+          }
+        }
       })
       .addCase(extendRangeThunk.fulfilled, (state, action) => {
         const { reportId, status, dataRange, syncProgress, syncStartedAt, syncCompletedAt, syncError } = action.payload;
@@ -427,6 +456,14 @@ const reportsSlice = createSlice({
       .addCase(extendRangeThunk.rejected, (state, action) => {
         const { reportId } = action.meta.arg;
         state.syncStatusLoading[reportId] = false;
+        // Reset status back to 'ready' or 'error' on failure
+        for (const projectReports of Object.values(state.reports)) {
+          const report = projectReports.find(r => r.id === reportId);
+          if (report) {
+            report.status = 'error';
+            report.syncError = action.error.message || 'Failed to extend range';
+          }
+        }
       })
       .addCase(cancelSyncThunk.fulfilled, (state, action) => {
         const { reportId, status } = action.payload;
@@ -512,6 +549,7 @@ export const {
   clearProjectReports,
   updateChartSlot,
   removeChartSlot,
+  updateChartBrushRange,
   updateMetricCards,
   updateVisibleChartSlots,
   updateBreakdowns,

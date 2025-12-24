@@ -35,7 +35,7 @@ import {
 interface ReportSyncStatusProps {
   reportId: string;
   projectId: string;
-  configId: string;
+  configId?: string; // Now optional - backend can derive from workspace
   compact?: boolean;
 }
 
@@ -141,7 +141,7 @@ function ReportSyncStatusInner({
 
   // Extend range
   const handleExtendRange = useCallback((targetDays: number) => {
-    dispatch(extendRangeThunk({ projectId, reportId, configId, targetDays }));
+    dispatch(extendRangeThunk({ projectId, reportId, targetDays, configId }));
   }, [dispatch, projectId, reportId, configId]);
 
   // Cancel sync

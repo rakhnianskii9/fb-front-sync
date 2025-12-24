@@ -22,6 +22,6 @@ export function useWorkspace() {
   return {
     workspaceId,
     isLoading: !currentUser && !storedWorkspaceId && !currentProject,
-    error: workspaceId ? null : 'Рабочее пространство не выбрано',
+    error: workspaceId ? null : 'No workspace selected',
   };
 }

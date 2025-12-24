@@ -344,7 +344,7 @@ export function getAvailableVariants(genericMetricId: string, availableMetricIds
  */
 export function getAllConversionVariants(
   availableMetricIds: string[],
-  aggregatedMetrics: Record<string, { total: number; change: number | null; changePercent: number | null }>
+  aggregatedMetrics: Record<string, { total: number; change?: number | null; changePercent?: number | null }>
 ): Array<{ metricId: string; value: number; changePercent: number | null }> {
   // Паттерны ИСКЛЮЧЕНИЯ — это НЕ количественные результаты, а производные метрики
   const excludePatterns = [
@@ -375,7 +375,8 @@ export function getAllConversionVariants(
     
     // Проверяем что есть данные
     if (aggregatedMetrics[metricId]) {
-      const { total, changePercent } = aggregatedMetrics[metricId];
+      const { total } = aggregatedMetrics[metricId];
+      const changePercent = aggregatedMetrics[metricId].changePercent ?? null;
       if (total > 0) {
         const entry = { metricId, value: total, changePercent };
         if (isResults) {

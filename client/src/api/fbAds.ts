@@ -657,7 +657,7 @@ const fbAdsApi = {
      */
     async extendRange(
       reportId: string,
-      data: { workspaceId: string; configId: string; targetDays: number }
+      data: { workspaceId: string; configId?: string; targetDays: number }
     ): Promise<{ success: boolean; jobId: string; currentDays: number; targetDays: number }> {
       return client.post(`/facebook/ads/reports/${reportId}/extend`, data);
     },
@@ -821,6 +821,12 @@ const fbAdsApi = {
     async remove(workspaceId: string, pixelId: string): Promise<{ success: boolean }> {
       return client.delete<{ success: boolean }>('/facebook/pixels', {
         params: { workspaceId, pixelId },
+      });
+    },
+    async setSelected(workspaceId: string, pixelId: string): Promise<{ success: boolean; selectedPixelId?: string }> {
+      return client.put<{ success: boolean; selectedPixelId?: string }>('/facebook/pixels/selected', {
+        workspaceId,
+        pixelId,
       });
     },
     async sendTestEvent({ workspaceId, pixelId, ...body }: SendPixelTestEventRequest): Promise<SendPixelTestEventResponse> {
@@ -1075,6 +1081,19 @@ const fbAdsApi = {
           level: data.level
         }
       });
+    },
+
+    /**
+     * Получить доступные окна атрибуции из сохранённых raw insights
+     */
+    async getAttributionSettings(accountId: string): Promise<{
+      success: boolean;
+      attributionSettings: Array<{ value: string; label: string; count: number }>;
+    }> {
+      if (!accountId) {
+        return { success: false, attributionSettings: [] };
+      }
+      return client.get(`/facebook-marketing/attribution-settings/${accountId}`);
     },
   },
 

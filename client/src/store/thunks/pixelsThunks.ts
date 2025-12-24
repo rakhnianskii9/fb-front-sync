@@ -54,10 +54,10 @@ const getErrorMessage = (error: unknown): string => {
     return (
       maybeError.response?.data?.message ||
       maybeError.message ||
-      'Не удалось отправить тестовое событие'
+      'Failed to send test event'
     );
   }
-  return 'Не удалось отправить тестовое событие';
+  return 'Failed to send test event';
 };
 
 export const sendPixelTestEventThunk =

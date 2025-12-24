@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, memo } from "react";
+import { useState, useEffect, useMemo, memo, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Settings, Plus, X, Pin, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ChartSlotConfig, Report, ChartType } from "@/store/slices/reportsSlice";
+import { updateChartBrushRange } from "@/store/slices/reportsSlice";
 import { 
   LineChartWidget, 
   BarChartWidget, 
@@ -25,7 +26,7 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel";
 import { validateMetricsForChart } from "@/lib/chartValidationRules";
-import { useAppSelector } from "@/store/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { selectAvailableMetricIds } from "@/store/selectors";
 import { resolveMetrics, filterResolvableMetrics } from "@/lib/resolveMetrics";
 
@@ -92,9 +93,21 @@ function ChartSlotInner({
   onRemove,
   onChartTypeChange,
 }: ChartSlotProps) {
+  const dispatch = useAppDispatch();
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
   const availableMetricIds = useAppSelector(selectAvailableMetricIds);
+  
+  // Callback for brush changes - saves to Redux for instant responsiveness
+  const handleBrushChange = useCallback((startIndex: number, endIndex: number) => {
+    dispatch(updateChartBrushRange({
+      projectId: report.projectId,
+      reportId: report.id,
+      slotIndex,
+      brushStartIndex: startIndex,
+      brushEndIndex: endIndex,
+    }));
+  }, [dispatch, report.projectId, report.id, slotIndex]);
 
   useEffect(() => {
     if (!api) return;
@@ -240,6 +253,9 @@ function ChartSlotInner({
             showComparison={!!periodB}
             warning={validation.warning}
             warningReason={validation.reason}
+            initialBrushStart={slotConfig?.brushStartIndex}
+            initialBrushEnd={slotConfig?.brushEndIndex}
+            onBrushChange={handleBrushChange}
           />
         );
       }
@@ -255,6 +271,9 @@ function ChartSlotInner({
             showComparison={!!periodB}
             warning={validation.warning}
             warningReason={validation.reason}
+            initialBrushStart={slotConfig?.brushStartIndex}
+            initialBrushEnd={slotConfig?.brushEndIndex}
+            onBrushChange={handleBrushChange}
           />
         );
       }
@@ -270,6 +289,9 @@ function ChartSlotInner({
             showComparison={!!periodB}
             warning={validation.warning}
             warningReason={validation.reason}
+            initialBrushStart={slotConfig?.brushStartIndex}
+            initialBrushEnd={slotConfig?.brushEndIndex}
+            onBrushChange={handleBrushChange}
           />
         );
       }
@@ -299,6 +321,9 @@ function ChartSlotInner({
             showGrid={showGrid}
             showComparison={!!periodB}
             warning={validation.warning}
+            initialBrushStart={slotConfig?.brushStartIndex}
+            initialBrushEnd={slotConfig?.brushEndIndex}
+            onBrushChange={handleBrushChange}
             warningReason={validation.reason}
           />
         );

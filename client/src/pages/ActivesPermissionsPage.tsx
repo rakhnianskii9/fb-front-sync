@@ -38,6 +38,7 @@ import { resetTestEventState } from "@/store/slices/pixelsSlice";
 import { setAudiences } from "@/store/slices/audiencesSlice";
 import { fetchAdAccounts } from "@/store/slices/accountsThunks";
 import { fetchPixels, sendPixelTestEventThunk } from "@/store/thunks/pixelsThunks";
+import fbAdsApi from "@/api/fbAds";
 import { fetchAudiences } from "@/store/thunks/audiencesThunks";
 import { fetchUserSettings, fetchSystemUsers } from "@/store/thunks/settingsThunks";
 import {
@@ -50,7 +51,6 @@ import {
   type CapiEventsDatePreset,
 } from "@/store/slices/capiEventsSlice";
 import type { CapiEventStatus } from "@/api/fbAds";
-import fbAdsApi from "@/api/fbAds";
 import type { PermissionGroup } from "@/store/slices/permissionsSlice";
 import { copyTextToClipboard } from "@/utils/clipboard";
 import {
@@ -906,6 +906,18 @@ export default function ActivesPermissionsPage() {
     dispatch(resetTestEventState());
   }, [dispatch, appliedPixelId]);
 
+  // Восстановление выбранного пикселя из persisted settings (если есть)
+  useEffect(() => {
+    const persisted = (userSettings as any)?.selectedPixelId as string | null | undefined;
+    if (!persisted) return;
+
+    // Не перетираем выбор пользователя, если он уже начал взаимодействовать
+    if (selectedPixelId || appliedPixelId) return;
+
+    setSelectedPixelId(persisted);
+    setAppliedPixelId(persisted);
+  }, [userSettings, selectedPixelId, appliedPixelId]);
+
   useEffect(() => {
     setEventSearch(capiEventsFilters.search);
   }, [capiEventsFilters.search]);
@@ -976,18 +988,41 @@ export default function ActivesPermissionsPage() {
     fetchDomains();
   }, [workspaceId, appliedPixelId]);
 
-  const handleApplyPixel = () => {
-    if (selectedPixelId) {
-      setAppliedPixelId(selectedPixelId);
+  const handleApplyPixel = async () => {
+    if (!workspaceId) {
       toast({
-        description: "Pixel applied successfully",
+        variant: "destructive",
+        description: "Workspace ID is missing",
         duration: 2000,
       });
-    } else {
+      return;
+    }
+
+    if (!selectedPixelId) {
       toast({
         variant: "destructive",
         description: "Please select a pixel",
         duration: 2000,
+      });
+      return;
+    }
+
+    try {
+      // Сначала применяем локально, чтобы UI реагировал мгновенно
+      setAppliedPixelId(selectedPixelId);
+
+      // Затем сохраняем персистентно на бэке
+      await fbAdsApi.pixels.setSelected(workspaceId, selectedPixelId);
+
+      toast({
+        description: "Pixel applied successfully",
+        duration: 2000,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        description: error instanceof Error ? error.message : "Failed to save selected pixel",
+        duration: 3000,
       });
     }
   };

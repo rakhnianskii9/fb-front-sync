@@ -181,8 +181,10 @@ function ReportSelectorInner({
                       id={report.id}
                       data-testid={`radio-report-${report.id}`}
                     />
-                    <label htmlFor={report.id} className="flex-1 cursor-pointer">
-                      <p className="text-body text-card-foreground font-medium">{report.name}</p>
+                    <label htmlFor={report.id} className="flex-1 cursor-pointer min-w-0">
+                      <div className="overflow-x-auto scrollbar-thin">
+                        <p className="text-body text-card-foreground font-medium whitespace-nowrap">{report.name}</p>
+                      </div>
                       {report.tags && report.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {report.tags.map((tag, index) => (
