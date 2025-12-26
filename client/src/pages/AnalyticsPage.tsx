@@ -992,6 +992,15 @@ export default function AnalyticsPage() {
     label: string;
     count: number;
   }>>([]);
+
+  const ENABLED_ATTRIBUTION_WINDOWS = useMemo(() => {
+    return new Set<string>(['7d_click_1d_view', '28d_click_1d_view', '7d_click']);
+  }, []);
+
+  const isAttributionWindowEnabled = useCallback(
+    (value: string) => ENABLED_ATTRIBUTION_WINDOWS.has(value),
+    [ENABLED_ATTRIBUTION_WINDOWS]
+  );
   
   // Ref для отслеживания пользовательского изменения vs синхронизации из Redux
   const attributionUserChangeRef = useRef(false);
@@ -1010,6 +1019,9 @@ export default function AnalyticsPage() {
   
   // Сохранение attribution в report при ПОЛЬЗОВАТЕЛЬСКОМ изменении
   const handleAttributionChange = useCallback((newValue: string) => {
+    if (!isAttributionWindowEnabled(newValue)) {
+      return;
+    }
     if (newValue !== attribution) {
       setAttribution(newValue);
       // Сохраняем в report через debounced update
@@ -1017,7 +1029,7 @@ export default function AnalyticsPage() {
         queueUpdate({ attribution: newValue });
       }
     }
-  }, [attribution, currentReport, queueUpdate]);
+  }, [attribution, currentReport, isAttributionWindowEnabled, queueUpdate]);
   
   // Загрузка доступных атрибуций при смене аккаунтов
   // Кэшируем по accountId чтобы не перезагружать
@@ -1043,9 +1055,14 @@ export default function AnalyticsPage() {
         if (response.success && response.attributionSettings.length > 0) {
           lastLoadedAttributionAccountRef.current = accountId;
           setAvailableAttributions(response.attributionSettings);
+
           const currentAvailable = response.attributionSettings.find((a) => a.value === attribution);
-          if (!currentAvailable) {
-            setAttribution(response.attributionSettings[0].value);
+          const currentEnabled = currentAvailable && isAttributionWindowEnabled(currentAvailable.value);
+
+          if (!currentEnabled) {
+            const preferred = response.attributionSettings.find((a) => a.value === '7d_click_1d_view');
+            const fallbackEnabled = response.attributionSettings.find((a) => isAttributionWindowEnabled(a.value));
+            setAttribution((preferred && isAttributionWindowEnabled(preferred.value) ? preferred.value : fallbackEnabled?.value) || '7d_click_1d_view');
           }
         }
       } catch (error) {
@@ -2421,15 +2438,28 @@ export default function AnalyticsPage() {
                       <>
                         <div className="text-xs font-semibold text-muted-foreground px-2 py-1.5">Available Attribution Windows</div>
                         {availableAttributions.map((attr) => (
+                          (() => {
+                            const disabled = !isAttributionWindowEnabled(attr.value);
+                            const active = attr.value === attribution;
+                            return (
                           <SelectItem 
                             key={attr.value} 
                             value={attr.value}
-                            className={attr.value === attribution ? 'bg-primary/10 text-primary font-medium' : ''}
+                            disabled={disabled}
+                            className={
+                              active
+                                ? 'bg-primary/10 text-primary font-medium'
+                                : disabled
+                                  ? 'opacity-60 cursor-not-allowed'
+                                  : ''
+                            }
                           >
-                            <span className={attr.value === attribution ? 'text-primary' : ''}>
+                            <span className={active ? 'text-primary' : disabled ? 'text-muted-foreground' : ''}>
                               {attr.label} ({attr.count.toLocaleString()} records)
                             </span>
                           </SelectItem>
+                            );
+                          })()
                         ))}
                       </>
                     ) : (
@@ -2454,9 +2484,10 @@ export default function AnalyticsPage() {
                         <div className="text-xs font-semibold text-muted-foreground px-2 py-1.5 mt-2">Click Only</div>
                         <SelectItem 
                           value="1d_click"
-                          className={attribution === '1d_click' ? 'bg-primary/10 text-primary font-medium' : ''}
+                          disabled
+                          className={attribution === '1d_click' ? 'bg-primary/10 text-primary font-medium' : 'opacity-60 cursor-not-allowed'}
                         >
-                          <span className={attribution === '1d_click' ? 'text-primary' : ''}>1d click only</span>
+                          <span className={attribution === '1d_click' ? 'text-primary' : 'text-muted-foreground'}>1d click only</span>
                         </SelectItem>
                         <SelectItem 
                           value="7d_click"
@@ -2466,16 +2497,18 @@ export default function AnalyticsPage() {
                         </SelectItem>
                         <SelectItem 
                           value="28d_click"
-                          className={attribution === '28d_click' ? 'bg-primary/10 text-primary font-medium' : ''}
+                          disabled
+                          className={attribution === '28d_click' ? 'bg-primary/10 text-primary font-medium' : 'opacity-60 cursor-not-allowed'}
                         >
-                          <span className={attribution === '28d_click' ? 'text-primary' : ''}>28d click only</span>
+                          <span className={attribution === '28d_click' ? 'text-primary' : 'text-muted-foreground'}>28d click only</span>
                         </SelectItem>
                         <div className="text-xs font-semibold text-muted-foreground px-2 py-1.5 mt-2">View Only</div>
                         <SelectItem 
                           value="1d_view"
-                          className={attribution === '1d_view' ? 'bg-primary/10 text-primary font-medium' : ''}
+                          disabled
+                          className={attribution === '1d_view' ? 'bg-primary/10 text-primary font-medium' : 'opacity-60 cursor-not-allowed'}
                         >
-                          <span className={attribution === '1d_view' ? 'text-primary' : ''}>1d view only</span>
+                          <span className={attribution === '1d_view' ? 'text-primary' : 'text-muted-foreground'}>1d view only</span>
                         </SelectItem>
                       </>
                     )}

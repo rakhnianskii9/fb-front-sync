@@ -238,6 +238,10 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
   // Ref для отмены запросов
   const abortControllerRef = useRef<AbortController | null>(null);
   const periodBAbortRef = useRef<AbortController | null>(null);
+
+  // Multi-cache for instant attribution switching (keyed by full signature, including attribution)
+  const multiCacheRef = useRef<Map<string, ReportCache>>(new Map());
+  const signatureKey = (s: CacheSignature): string => JSON.stringify(s);
   
   // Импорт useRef для retry логики (перенесён выше)
 
@@ -791,11 +795,15 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
         creatives: results[3],
       };
 
-      setCache(prev => ({
-        ...prev,
-        tabs: newTabs,
-        signature: signatureToSave,
-      }));
+      setCache(prev => {
+        const next: ReportCache = {
+          ...prev,
+          tabs: newTabs,
+          signature: signatureToSave,
+        };
+        multiCacheRef.current.set(signatureKey(signatureToSave), next);
+        return next;
+      });
 
       logger.log('[useReportCache] All tabs loaded:', {
         loadDateFrom,
@@ -853,6 +861,21 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
         periodBSignature: { dateFrom: periodBFrom, dateTo: periodBTo },
       }));
 
+      // Also persist updated cache state into multi-cache for instant restore
+      if (cache.signature) {
+        const updated: ReportCache = {
+          ...cache,
+          periodB: {
+            campaigns: results[0],
+            adsets: results[1],
+            ads: results[2],
+            creatives: results[3],
+          },
+          periodBSignature: { dateFrom: periodBFrom, dateTo: periodBTo },
+        };
+        multiCacheRef.current.set(signatureKey(cache.signature), updated);
+      }
+
       logger.log('[useReportCache] Period B prefetched');
 
     } catch (err) {
@@ -877,6 +900,16 @@ export function useReportCache(params: UseReportCacheParams): UseReportCacheResu
     // Проверяем изменилась ли signature
     if (signaturesEqual(cache.signature, currentSignature)) {
       return; // Кэш актуален
+    }
+
+    // Instant restore if we already have this exact signature (e.g., other attribution window)
+    const cached = multiCacheRef.current.get(signatureKey(currentSignature));
+    if (cached) {
+      setCache(cached);
+      setIsLoading(false);
+      setLoadingTabs(new Set());
+      setError(null);
+      return;
     }
 
     // ФИКС проблемы первичной загрузки:

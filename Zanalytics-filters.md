@@ -483,12 +483,82 @@ Issues:
 - Алерты: только `error`.
 - История: `appeared_at`, `resolved_at`, `duration`.
 
+### ✅ Реализовано (backend)
+
+- Таблицы жизненного цикла:
+  - `facebook_learning_stage` (enteredAt/exitedAt/lastSeenAt/lastSigEditAt/details(jsonb))
+  - `facebook_entity_issue` (appearedAt/resolvedAt/lastSeenAt/severity/category/code/title/message/raw(jsonb))
+- Ночной вывод (nightly): деривация learning + issues после daily snapshots.
+- Retention для health:
+  - ENV: `FACEBOOK_HEALTH_RETENTION_DAYS` (по умолчанию = `FACEBOOK_DAILY_SNAPSHOT_RETENTION_DAYS`)
+  - удаляем только закрытые записи старше cutoff:
+    - learning: `exitedAt < cutoff`
+    - issues: `resolvedAt < cutoff`
+- Read-only API:
+  - `GET /api/v1/facebook-marketing/health/:accountId?workspaceId=...&limit=...`
+  - `GET /api/v1/facebook-marketing/health/:accountId/history?workspaceId=...&from=...&to=...&includeResolved=true&limit=...`
+  - `GET /api/v1/facebook-marketing/health/:accountId/aggregate?workspaceId=...&limit=...&groupBy=campaign|adset|ad|creative&includeExamples=true&examplesLimit=3&includePaths=true&pathsLimit=5` (learning тоже попадает в groups вплоть до ad/creative; includePaths даёт явные campaign->adset->ad->creative paths для креативов)
+  - Опционально тяжёлые jsonb-поля: `includeRaw=true` (по умолчанию `includeRaw=false`, чтобы ответы не были огромными).
+
+### ✅ Улучшение покрытия (что именно сделали)
+
+- В sync добавили поля, чтобы нужная инфа реально попадала в `rawData`:
+  - adset: `learning_stage_info`
+  - campaign/ad: `recommendations`
+  - creative: `recommendations`
+- В issues extraction:
+  - поддержка `recommendations` как строк и как объектов
+  - fallback-issue по `effective_status` (например `DISAPPROVED/REJECTED/WITH_ISSUES/PENDING_REVIEW`), когда Meta не отдаёт детальные `issues_info`.
+
 ## Attribution Context (минимум на старте)
 
 - Сейчас: только default окно атрибуции `7d_click, 1d_view`.
 - `attribution_spec` (из AdSet) храним отдельно и привязываем reference_id к insights (контекст запроса).
 - Важно: в v1 "Attribution" = агрегаты из Insights (окна/модель/контекст запроса), НЕ "пути" (event-level sequences). Полноценные multi-touch пути не обещаем на базе Facebook API; если понадобятся — это отдельный v2 (CRM/click-id/UTM + собственные события).
 - Пересчёт CPR/ROAS при смене окна: НЕ делаем на этом этапе; храним raw values default-окна.
+
+---
+
+## ✅ Validation Checklist — Backend Data Layer
+
+### Must-have (план закрыт?)
+
+| # | Компонент | Статус | Файлы |
+|---|-----------|--------|-------|
+| 1 | **Activities sync** | ✅ ГОТОВО | `facebookActivitySync.ts`, `facebook_ad_account_activity` |
+| 2 | **SCD2 Daily Snapshots** | ✅ ГОТОВО | `facebookDailySnapshotJob.ts`, `facebook_daily_snapshot` |
+| 3 | **Materialized Attributes** | ✅ ГОТОВО | `facebookMaterialization.ts`, `facebook_entity_attributes` |
+| 4 | **JSONB + GIN indexes** | ✅ ГОТОВО | Migrations `1769520000000-AddFacebookJsonbGinIndexes.ts` |
+
+### API Endpoints
+
+| Endpoint | Статус | Описание |
+|----------|--------|----------|
+| `GET /filters/:accountId` | ✅ ГОТОВО | Distinct values для 9 атрибутов |
+| `POST /breakdown/:accountId` | ✅ ГОТОВО | Агрегация insights по атрибуту |
+| `POST /backfill/daily-snapshot` | ✅ ГОТОВО | Backfill snapshots за диапазон |
+| `GET /health/:accountId` | ✅ ГОТОВО | Open learning + open issues (read-only) |
+| `GET /health/:accountId/history` | ✅ ГОТОВО | History по окну дат + includeResolved |
+
+### Таблицы
+
+| Таблица | Статус | Назначение |
+|---------|--------|------------|
+| `facebook_ad_account_activity` | ✅ ГОТОВО | Журнал изменений (activities) |
+| `facebook_daily_snapshot` | ✅ ГОТОВО | SCD2 snapshots метаданных |
+| `facebook_entity_attributes` | ✅ ГОТОВО | Materialized атрибуты для фильтров |
+| `facebook_entity_diff` | ✅ ГОТОВО | JSON diff артефакты |
+| `facebook_attribution_query` | ✅ ГОТОВО | Reference ID для контекста запроса |
+
+### Ещё не реализовано (backlog)
+
+| # | Компонент | Статус | Примечание |
+|---|-----------|--------|------------|
+| 1 | Learning Stage tracking | ✅ ГОТОВО | Table `facebook_learning_stage` (entered/exited lifecycle) |
+| 2 | Issues/Alerts | ✅ ГОТОВО | Table `facebook_entity_issue` (appeared/resolved lifecycle) |
+| 3 | Hot/Cold storage | ❌ НЕ ГОТОВО | Логическое разделение activities |
+| 4 | Query Builder UI | ❌ НЕ ГОТОВО | Frontend компонент глобальных фильтров |
+| 5 | Breakdown UI | ❌ НЕ ГОТОВО | Frontend компонент группировки |
 
 ---
 
@@ -1596,33 +1666,33 @@ interface DashboardConfig {
 ## Validation Checklist — Dashboard Builder
 
 ### Workspace 1: Overview (Full Funnel)
-- [ ] Воронка отображает все этапы от Impressions до Won
-- [ ] Визуальный разделитель FB / CRM (Match Rate)
-- [ ] Targets вводятся вручную и сохраняются
-- [ ] Plan/Fact показывает % выполнения с прогресс-баром
-- [ ] Detail Panel: breakdown по campaign при клике на этап
+- [x] ✅ Воронка отображает все этапы от Impressions до Won — `FunnelGaugeWidget` + `OverviewWorkspace.tsx`
+- [ ] ❌ Визуальный разделитель FB / CRM (Match Rate) — не реализовано
+- [ ] ❌ Targets вводятся вручную и сохраняются — `onSetTargets` callback есть, модалка не реализована
+- [ ] ❌ Plan/Fact показывает % выполнения с прогресс-баром — структура есть, gauge не подключен
+- [x] ✅ Detail Panel: breakdown по campaign при клике на этап — реализовано (hardcoded данные)
 
 ### Workspace 2: Attribution (Treemap ↔ Tree)
-- [ ] Treemap показывает пути по площади (конверсии)
-- [ ] Tree показывает ветвление путей от touchpoint
-- [ ] Toggle переключает между Treemap и Tree
-- [ ] Цвет = CPR (зелёный = низкий)
-- [ ] Detail Panel: touchpoint breakdown, campaigns в пути
+- [ ] ❌ Treemap показывает пути по площади (конверсии) — future v2
+- [ ] ❌ Tree показывает ветвление путей от touchpoint — future v2
+- [ ] ❌ Toggle переключает между Treemap и Tree — future v2
+- [ ] ❌ Цвет = CPR (зелёный = низкий) — future v2
+- [ ] ❌ Detail Panel: touchpoint breakdown, campaigns в пути — future v2
 
 ### Workspace 3: Compare (Grouped Bar)
-- [ ] Выбор N entities (campaigns/adsets/ads)
-- [ ] Выбор M metrics (checkboxes)
-- [ ] 3 режима: Grouped / Stacked / Normalized %
-- [ ] Сортировка по выбранной метрике
-- [ ] Detail Panel: все метрики + сравнение с avg
-- [ ] **ROMI by Creative** — новый режим сквозной аналитики (см. ниже)
+- [ ] ❌ Выбор N entities (campaigns/adsets/ads) — не реализовано
+- [ ] ❌ Выбор M metrics (checkboxes) — не реализовано
+- [ ] ❌ 3 режима: Grouped / Stacked / Normalized % — не реализовано
+- [ ] ❌ Сортировка по выбранной метрике — не реализовано
+- [ ] ❌ Detail Panel: все метрики + сравнение с avg — не реализовано
+- [ ] ❌ **ROMI by Creative** — новый режим сквозной аналитики — не реализовано
 
 ### Общее
-- [ ] Global Query Builder влияет на все виджеты
-- [ ] Локальные фильтры таблицы НЕ влияют на виджеты
-- [ ] KPI плитка с группировкой по смыслу
-- [ ] Preset столы работают из коробки
-- [ ] Кастомные столы сохраняются в report
+- [ ] ❌ Global Query Builder влияет на все виджеты — UI не реализован
+- [x] ✅ Локальные фильтры таблицы НЕ влияют на виджеты — архитектурно корректно
+- [x] ✅ KPI плитка с группировкой по смыслу — `MetricCardsGroup` реализован
+- [ ] ❌ Preset столы работают из коробки — только Overview частично
+- [ ] ❌ Кастомные столы сохраняются в report — не реализовано
 
 ---
 
@@ -1958,14 +2028,14 @@ GET /api/v1/fb-front/ads/romi-by-creative
 
 ## Validation Checklist — ROMI by Creative
 
-- [ ] Таблица показывает креативы с CRM-метриками (Leads, Qualified, Won, Revenue, ROMI)
-- [ ] Bar chart визуализирует ROMI для каждого креатива
-- [ ] Breakdown группирует по любому из 9 атрибутов
-- [ ] Detail Panel показывает полную информацию о креативе
-- [ ] Scatter: X=Spend, Y=Revenue, Size=ROMI — корреляция
-- [ ] KPI плитка: Total Spend, Total Revenue, Avg ROMI, Best Performer, Unmatched Leads
-- [ ] Overview: мини-виджет Top-3 ROMI с ссылкой на Compare
-- [ ] Фильтры Query Builder влияют на выборку креативов
+- [ ] ❌ Таблица показывает креативы с CRM-метриками (Leads, Qualified, Won, Revenue, ROMI)
+- [ ] ❌ Bar chart визуализирует ROMI для каждого креатива
+- [ ] ❌ Breakdown группирует по любому из 9 атрибутов
+- [ ] ❌ Detail Panel показывает полную информацию о креативе
+- [ ] ❌ Scatter: X=Spend, Y=Revenue, Size=ROMI — корреляция
+- [ ] ❌ KPI плитка: Total Spend, Total Revenue, Avg ROMI, Best Performer, Unmatched Leads
+- [ ] ❌ Overview: мини-виджет Top-3 ROMI с ссылкой на Compare
+- [ ] ❌ Фильтры Query Builder влияют на выборку креативов
 
 ---
 
@@ -2235,10 +2305,10 @@ queryKey = [
 
 ## Validation Checklist — Widget Cache
 
-- [ ] Каждый виджет имеет свой изолированный кэш
-- [ ] Одинаковые запросы дедуплицируются через React Query
-- [ ] Ошибка в одном виджете не влияет на другие
-- [ ] Виджеты можно обновлять по отдельности
-- [ ] staleTime предотвращает лишние запросы
-- [ ] useInvalidateAllWidgets работает при смене отчёта
-- [ ] usePrefetchWidget работает для превью
+- [x] ✅ Каждый виджет имеет свой изолированный кэш — `useWidgetCache.ts` реализован
+- [x] ✅ Одинаковые запросы дедуплицируются через React Query — `generateQueryKey()`
+- [x] ✅ Ошибка в одном виджете не влияет на другие — изолированные useQuery
+- [x] ✅ Виджеты можно обновлять по отдельности — `refetch()` на уровне виджета
+- [x] ✅ staleTime предотвращает лишние запросы — настроено в хуке
+- [ ] ❌ useInvalidateAllWidgets работает при смене отчёта — не реализовано
+- [ ] ❌ usePrefetchWidget работает для превью — не реализовано
